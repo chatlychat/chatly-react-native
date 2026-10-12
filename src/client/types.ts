@@ -10,7 +10,7 @@
 export interface ChatlyConfig {
   /** Public workspace identifier, e.g. `pub_abc123`. */
   publicId: string;
-  /** API host (no scheme). Defaults to `api.chatly.com`. */
+  /** API host (no scheme). Defaults to `api.chatlychat.com`. */
   apiHost?: string;
   /** Override the realtime host. Defaults to the apiHost. */
   realtimeHost?: string;

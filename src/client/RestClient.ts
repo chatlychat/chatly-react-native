@@ -22,7 +22,22 @@ import type {
   StartResponse,
 } from './types';
 
-const DEFAULT_API_HOST = 'api.chatly.com';
+/*
+ * `api.chatlychat.com`, and `chatly.com` is not a domain we own.
+ *
+ * This read `api.chatly.com` — a real, resolvable host belonging to somebody
+ * else — in a package PUBLISHED to npm as `@chatlychat/react-native@0.1.1`.
+ * Every app that followed the README and omitted `apiHost` sent its visitor
+ * sessions, messages and identity payloads to a third party's server.
+ *
+ * It is the same defect as `api.livechat.local` in the JS and Node SDKs and
+ * `api.chatly.example` in the Kotlin and Swift ones, but worse in the way
+ * that matters: those resolve nowhere, so they failed loudly and immediately.
+ * This one is a live domain. `check-published-package-hosts.mjs` missed it
+ * for exactly that reason — it was looking for reserved and dev-shaped names.
+ * It now requires a published default to be a `chatlychat.com` host.
+ */
+const DEFAULT_API_HOST = 'api.chatlychat.com';
 
 export class RestClient {
   private readonly apiUrl: string;

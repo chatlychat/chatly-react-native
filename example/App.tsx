@@ -33,7 +33,7 @@ export default function App(): React.JSX.Element {
   return (
     <View style={styles.fill}>
       <StatusBar barStyle="dark-content" />
-      <ChatlyProvider config={{ publicId: 'pub_abc123', apiHost: 'api.chatly.com' }}>
+      <ChatlyProvider config={{ publicId: 'pub_abc123', apiHost: 'api.chatlychat.com' }}>
         <Inner />
       </ChatlyProvider>
     </View>

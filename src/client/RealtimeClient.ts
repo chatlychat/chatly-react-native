@@ -40,7 +40,9 @@ export class RealtimeClient {
   private subscribedChannels: string[] = [];
 
   public constructor(config: ChatlyConfig) {
-    const host = config.realtimeHost ?? config.apiHost ?? 'api.chatly.com';
+    // `chatlychat.com`. See the note on DEFAULT_API_HOST in RestClient.ts —
+    // this fallback had the same foreign host, in a published package.
+    const host = config.realtimeHost ?? config.apiHost ?? 'api.chatlychat.com';
     const scheme = config.secure === false ? 'ws' : 'wss';
     this.url = `${scheme}://${host}`;
   }

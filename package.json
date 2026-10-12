@@ -1,6 +1,6 @@
 {
   "name": "@chatlychat/react-native",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "React Native SDK for Chatly — drop-in chat, help center, and push notification wiring for iOS and Android.",
   "license": "MIT",
   "private": false,

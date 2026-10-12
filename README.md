@@ -27,7 +27,7 @@ import { ChatlyProvider, ChatlyWidget, useChatly } from '@chatlychat/react-nativ
 
 export default function App() {
   return (
-    <ChatlyProvider config={{ publicId: 'pub_abc123', apiHost: 'api.chatly.com' }}>
+    <ChatlyProvider config={{ publicId: 'pub_abc123', apiHost: 'api.chatlychat.com' }}>
       <Support />
     </ChatlyProvider>
   );
