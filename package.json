@@ -1,7 +1,7 @@
 {
   "name": "@chatlychat/react-native",
   "version": "0.1.1",
-  "description": "React Native SDK for the Chatly live chat platform — drop-in chat, help center, and push notification wiring for iOS and Android.",
+  "description": "React Native SDK for Chatly — drop-in chat, help center, and push notification wiring for iOS and Android.",
   "license": "MIT",
   "private": false,
   "main": "dist/index.js",
@@ -48,6 +48,7 @@
   "publishConfig": {
     "access": "public"
   },
+  "homepage": "https://github.com/chatlychat/chatly-react-native#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/chatlychat/chatly-react-native.git"
@@ -55,5 +56,5 @@
   "bugs": {
     "url": "https://github.com/chatlychat/chatly-react-native/issues"
   },
-  "homepage": "https://chatlychat.com/docs"
+  "author": "Chatly"
 }

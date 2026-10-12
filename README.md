@@ -217,11 +217,11 @@ of the platform, its migrations and its contract checks live, so a pull request 
 cannot be merged directly — but a patch is still the fastest way to get something
 fixed and we will port it with attribution.
 
-What you can do here: read the source, run the tests (`npm install && npm test`),
-open an issue, or open a PR and we will treat the diff as the proposal.
+What you can do here: read the source, run the tests, open an issue, or open a PR
+and we will treat the diff as the proposal.
 
-The parity specs (src/blocks/money.parity.spec.ts, src/blocks/read-envelope.parity.spec.ts) are not mirrored: they assert that a type
-restated here still matches the monorepo's original, which is only a meaningful
-claim inside the monorepo. They keep running there.
+Not mirrored: src/blocks/money.parity.spec.ts, src/blocks/read-envelope.parity.spec.ts — specs that assert a type restated here still
+matches the monorepo's original, which is only a meaningful claim inside it. They
+keep running there.
 
 Issues: https://github.com/chatlychat/chatly-react-native/issues · Docs: https://chatlychat.com/docs
