@@ -17,4 +17,3 @@
   silently. `scripts/check-published-package-hosts.mjs` now requires a
   published default to be a `chatlychat.com` host rather than merely not a
   dev-shaped one.
-
