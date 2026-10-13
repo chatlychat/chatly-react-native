@@ -16,9 +16,24 @@ export function MessagesList({
   conversationId,
   pageSize = 50,
 }: MessagesListProps): React.JSX.Element {
-  const { rest, realtime, theme } = useChatly();
+  const { rest, realtime, theme, setActiveConversation } = useChatly();
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const listRef = useRef<FlatList<MessageRow>>(null);
+
+  /**
+   * Scope the visitor socket to this thread.
+   *
+   * A visitor's realtime token names one conversation, so the thread on
+   * screen is what decides which socket is open. Clearing it on unmount is
+   * deliberate: a socket for a thread nobody is looking at is a connection
+   * and a 1h token for nothing.
+   */
+  useEffect(() => {
+    setActiveConversation(conversationId);
+    return (): void => {
+      setActiveConversation(null);
+    };
+  }, [conversationId, setActiveConversation]);
 
   useEffect(() => {
     let cancelled = false;

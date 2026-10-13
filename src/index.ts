@@ -55,8 +55,13 @@ export type {
 export { HelpCenter } from './components/HelpCenter';
 export type { HelpCenterProps } from './components/HelpCenter';
 
-export { RestClient } from './client/RestClient';
+export { ChatlyRequestError, RestClient } from './client/RestClient';
 export { RealtimeClient } from './client/RealtimeClient';
+export type {
+  MintedRealtimeToken,
+  RealtimeConnectInput,
+  RealtimeTokenMinter,
+} from './client/RealtimeClient';
 
 export { IdentityStore, TokenStore } from './storage/TokenStore';
 export type { StoredIdentity } from './storage/TokenStore';

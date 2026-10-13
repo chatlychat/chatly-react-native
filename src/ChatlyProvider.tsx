@@ -36,6 +36,33 @@ export interface ChatlyContextValue {
   error: Error | null;
   unreadCount: number;
   conversations: ConversationSummary[];
+  /**
+   * The conversation the realtime socket is scoped to, or null when no socket
+   * is open.
+   *
+   * A visitor's realtime token names ONE conversation — see
+   * `RestClient.mintRealtimeToken` — so there is no such thing as a
+   * session-wide visitor socket. The provider opens one when a conversation
+   * becomes active and closes it when none is.
+   */
+  activeConversationId: string | null;
+  /**
+   * Scope live delivery to a conversation, or pass null to close the socket.
+   *
+   * `MessagesList` calls this for you; call it yourself if you render your own
+   * thread. Switching re-mints and reconnects, because reusing the socket
+   * would keep delivering the previous conversation's events.
+   */
+  setActiveConversation: (conversationId: string | null) => void;
+  /**
+   * Why live delivery is not running, if it is not.
+   *
+   * Deliberately separate from `error`: a refused realtime mint (a 404 for
+   * somebody else's conversation, a 403 on a channel with an origin
+   * allow-list, which a native app cannot satisfy) leaves the thread working
+   * over REST. Blanking the chat for it would be worse than the degradation.
+   */
+  realtimeError: Error | null;
   identify: (identity: ChatlyIdentity) => Promise<void>;
   logout: () => Promise<void>;
   setPushToken: (registration: PushTokenRegistration) => Promise<void>;
@@ -97,6 +124,8 @@ export function ChatlyProvider({
   const [init, setInit] = useState<InitResponse | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [realtimeError, setRealtimeError] = useState<Error | null>(null);
   const mounted = useRef(true);
 
   const bootstrap = useCallback(
@@ -108,8 +137,16 @@ export function ChatlyProvider({
         }
         setInit(result);
         setSession(result.session);
-        realtime.connect(result.session, result.session.token);
-        realtime.subscribe([`contact:${result.session.contactId}`]);
+        /*
+         * No socket here on purpose.
+         *
+         * This used to be `realtime.connect(session, session.token)` plus a
+         * subscribe to `contact:<id>`, and neither could work: the gateway
+         * does not accept the session token (it verifies an unlabelled
+         * handshake as an agent, RS256) and does not read a subscribe frame
+         * from a visitor at all. A visitor socket is minted per CONVERSATION
+         * and opened by the effect below.
+         */
         try {
           const list = await rest.listConversations();
           if (mounted.current) {
@@ -124,7 +161,9 @@ export function ChatlyProvider({
         }
       }
     },
-    [rest, realtime],
+    // No `realtime` any more: bootstrap no longer opens a socket, because a
+    // visitor socket is per-conversation. The effect below owns it.
+    [rest],
   );
 
   useEffect(() => {
@@ -135,6 +174,39 @@ export function ChatlyProvider({
       realtime.disconnect();
     };
   }, [bootstrap, realtime]);
+
+  /**
+   * The visitor socket: one conversation, one minted token.
+   *
+   * Re-runs on a switch, and `connect()` disconnects the previous socket
+   * synchronously before it awaits the mint, so the two never overlap.
+   */
+  useEffect(() => {
+    if (session === null || activeConversationId === null) {
+      realtime.disconnect();
+      return undefined;
+    }
+    setRealtimeError(null);
+    realtime
+      .connect({
+        session,
+        conversationId: activeConversationId,
+        mintToken: (conversationId) => rest.mintRealtimeToken(conversationId),
+      })
+      .catch((err: unknown) => {
+        if (mounted.current) {
+          // Live delivery is off; the thread still works over REST.
+          setRealtimeError(err as Error);
+        }
+      });
+    return (): void => {
+      realtime.disconnect();
+    };
+  }, [realtime, rest, session, activeConversationId]);
+
+  const setActiveConversation = useCallback((conversationId: string | null): void => {
+    setActiveConversationId(conversationId);
+  }, []);
 
   // Refresh conversation summaries on inbound message events.
   useEffect(() => {
@@ -164,11 +236,13 @@ export function ChatlyProvider({
   );
 
   const logout = useCallback(async (): Promise<void> => {
+    setActiveConversationId(null);
     realtime.disconnect();
     await rest.clearToken();
     setSession(null);
     setInit(null);
     setConversations([]);
+    setRealtimeError(null);
   }, [realtime, rest]);
 
   const setPushToken = useCallback(
@@ -203,6 +277,9 @@ export function ChatlyProvider({
       error,
       unreadCount,
       conversations,
+      activeConversationId,
+      setActiveConversation,
+      realtimeError,
       identify,
       logout,
       setPushToken,
@@ -219,6 +296,9 @@ export function ChatlyProvider({
       error,
       unreadCount,
       conversations,
+      activeConversationId,
+      setActiveConversation,
+      realtimeError,
       identify,
       logout,
       setPushToken,

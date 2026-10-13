@@ -1,5 +1,49 @@
 # @chatlychat/react-native
 
+## 0.2.0
+
+### Fixed
+
+- **Realtime could not connect, at all, for anyone.** The handshake sent
+  `{ token, workspaceId, contactId }` with the long-lived session token from
+  `/v1/widget/init`. `handshakeAuthSchema` accepts `{ token, kind? }` and
+  `kind` **defaults to agent**, so a visitor's HS256 token was verified as
+  RS256 against the platform public key and refused with a bare
+  `Unauthorized` naming neither credential. Two wrong things pointing the same
+  way: the credential and the missing label.
+
+  `RealtimeClient.connect` is now
+  `connect({ session, conversationId, mintToken })` — a **breaking change**,
+  because the old signature could not work. It mints a conversation-scoped
+  token at `POST /v1/widget/realtime/token` (`RestClient.mintRealtimeToken`),
+  sends `{ token, kind: 'visitor' }`, and passes `auth` as a **callback** so
+  every reconnect attempt re-reads it; the token is re-minted when the socket
+  drops, because a frozen credential outlives its 1h TTL and is then refused
+  silently for the rest of the session.
+
+  A visitor socket is scoped to one conversation, so the provider no longer
+  opens one at init. `activeConversationId` / `setActiveConversation` are on
+  the context, `<MessagesList>` sets them for the thread it renders, and a
+  switch re-mints and reconnects. A refused mint lands on `realtimeError`
+  rather than `error`: live delivery is off, the thread still works over REST.
+
+- **`uploadAttachment` posted a shape the route does not accept.** It sent
+  `{ filename, mimeType, data }` — base64 bytes — to
+  `POST /v1/widget/uploads/presign`, whose schema is
+  `{ visitorToken, publicId, filename, contentType, sizeBytes }` and which
+  takes no bytes at all, so zod dropped two keys and answered 400 on the
+  missing `contentType`. It is now the real three-step flow: presign, PUT the
+  raw bytes to the returned URL with the returned method and headers, then put
+  `{ id, filename, mimeType, sizeBytes, url }` on the message. Attachments
+  work from this SDK for the first time.
+
+- **A refused call now carries the server's own words.** `ChatlyRequestError`
+  (exported) has `status`, `code`, `path` and a `message` that is the API's
+  `error.message` when it sent one. The upload route's three refusals —
+  attachments off for the channel, a MIME type outside the allow-list, a file
+  over the cap — are copy written for the visitor, and `Composer` now shows
+  them instead of failing silently.
+
 ## 0.1.2
 
 ### Fixed

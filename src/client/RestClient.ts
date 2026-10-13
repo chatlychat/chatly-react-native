@@ -39,6 +39,65 @@ import type {
  */
 const DEFAULT_API_HOST = 'api.chatlychat.com';
 
+/**
+ * A refused widget call, with the server's own words on it.
+ *
+ * `message` is the API's `error.message` when it sent one, and nothing else:
+ * three of the upload route's refusals are copy written for the VISITOR to
+ * read ("File uploads are turned off for this chat", "That file type is not
+ * accepted: …", "Files must be under 10 MB"), and a composer should be able to
+ * render `err.message` straight into the UI. This used to be
+ * `[chatly] /v1/widget/uploads/presign failed: 400 {"error":{…}}` — the copy
+ * was in there, buried in a developer string, which is the same as not having
+ * it. `status`, `code` and `body` carry the developer half.
+ */
+export class ChatlyRequestError extends Error {
+  public constructor(
+    public readonly path: string,
+    public readonly status: number,
+    public readonly code: string | null,
+    public readonly body: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ChatlyRequestError';
+  }
+
+  public static from(path: string, status: number, body: string): ChatlyRequestError {
+    const parsed = readErrorBody(body);
+    return new ChatlyRequestError(
+      path,
+      status,
+      parsed.code,
+      body,
+      parsed.message ?? `[chatly] ${path} failed: ${status} ${body}`,
+    );
+  }
+}
+
+/**
+ * The API NESTS every error: `app-exception.filter.ts` ends with
+ * `send({ error: body })`. The un-nested fallback is kept because a proxy or
+ * a gateway in front of us may answer in its own shape.
+ */
+function readErrorBody(text: string): { code: string | null; message: string | null } {
+  try {
+    const parsed = JSON.parse(text) as {
+      error?: { code?: unknown; message?: unknown };
+      code?: unknown;
+      message?: unknown;
+    };
+    const code = parsed.error?.code ?? parsed.code;
+    const message = parsed.error?.message ?? parsed.message;
+    return {
+      code: typeof code === 'string' ? code : null,
+      message: typeof message === 'string' && message.length > 0 ? message : null,
+    };
+  } catch {
+    return { code: null, message: null };
+  }
+}
+
 export class RestClient {
   private readonly apiUrl: string;
   private readonly publicId: string;
@@ -256,24 +315,103 @@ export class RestClient {
   }
 
   /**
-   * Uploads raw bytes to the public widget upload endpoint and returns the
-   * persisted [Attachment] reference. The widget surface accepts only JSON,
-   * so the bytes are base64-encoded before transport. The server enforces
-   * the size cap — clients must not pre-check.
+   * Mint a realtime token for ONE conversation.
+   *
+   * This is the credential the Socket.IO gateway accepts from a visitor —
+   * HS256, conversation-scoped, 1h TTL. The long-lived `session.token` from
+   * `init` is NOT accepted there: a handshake carrying it is verified as an
+   * agent token (RS256, platform public key) and refused with a bare
+   * `Unauthorized`. See `RealtimeClient`.
+   *
+   * 404s when the conversation is not this visitor's own — the mint checks
+   * `conv.contactId === session.contactId` server-side.
+   */
+  public async mintRealtimeToken(
+    conversationId: string,
+  ): Promise<{ token: string; expiresAt: string }> {
+    return this.post<{ token: string; expiresAt: string }>('/v1/widget/realtime/token', {
+      publicId: this.publicId,
+      visitorToken: (await this.getToken()) ?? '',
+      conversationId,
+    });
+  }
+
+  /**
+   * Upload a file and return the attachment a message carries.
+   *
+   * THREE steps, and the first one is the one this got wrong for its whole
+   * life. It used to post `{ filename, mimeType, data }` — a base64 blob — to
+   * the presign route, which accepts
+   * `{ visitorToken, publicId, filename, contentType, sizeBytes }` and takes
+   * no bytes at all. zod dropped `mimeType` and `data` as unknown keys and
+   * answered 400 on the missing `contentType`, so no attachment ever uploaded
+   * from this SDK.
+   *
+   *   1. presign — the API mints the key under `workspaces/<id>/…`, so the
+   *      visitor cannot choose where their file lands;
+   *   2. the bytes go STRAIGHT to object storage with the returned method and
+   *      headers. Not multipart, not base64. Proxying a 10 MiB file through
+   *      Node to write it to S3 anyway is latency and memory for nothing;
+   *   3. the attachment record, which renames `contentType` to `mimeType` —
+   *      the same string under two names, because that is what the two
+   *      schemas call it (`widgetPresignSchema` vs `widgetAttachmentSchema`).
+   *
+   * The route refuses before presigning on three conditions — attachments off
+   * for the channel, a MIME type outside `WIDGET_UPLOAD_MIME`, a file over the
+   * channel's cap — each with copy written for the visitor to read. Those
+   * arrive as a `ChatlyRequestError` whose `message` is the server's own, so a
+   * composer can render it as-is. Do not pre-check the size here: the cap is
+   * per channel and the server owns it.
    */
   public async uploadAttachment(input: {
     bytes: Uint8Array;
     filename: string;
     mimeType: string;
   }): Promise<Attachment> {
-    const data = bytesToBase64(input.bytes);
-    return this.post<Attachment>('/v1/widget/uploads/presign', {
+    const sizeBytes = input.bytes.byteLength;
+    const presigned = await this.post<{
+      uploadId: string;
+      url: string;
+      method: string;
+      headers: Record<string, string>;
+      publicUrl: string;
+      expiresAt: string;
+    }>('/v1/widget/uploads/presign', {
       publicId: this.publicId,
       visitorToken: (await this.getToken()) ?? '',
       filename: input.filename,
-      mimeType: input.mimeType,
-      data,
+      // `contentType` on the way in, `mimeType` on the way out. Same string.
+      contentType: input.mimeType,
+      sizeBytes,
     });
+
+    /*
+     * Dev fallback: no object storage configured. The API answers with a
+     * `data:` sentinel rather than a real URL, and PUTting to it would throw a
+     * confusing network error. Same guard as `uploadOne` in the web widget.
+     */
+    if (presigned.url.startsWith('data:')) {
+      throw new Error('File uploads are not configured on this deployment');
+    }
+
+    const res = await fetch(presigned.url, {
+      method: presigned.method,
+      headers: presigned.headers,
+      // The bytes. A typed array is a valid `fetch` body in React Native and
+      // in every runtime this package is tested on.
+      body: input.bytes as unknown as BodyInit,
+    });
+    if (!res.ok) {
+      throw new Error(`[chatly] upload failed: ${res.status}`);
+    }
+
+    return {
+      id: presigned.uploadId,
+      filename: input.filename,
+      mimeType: input.mimeType,
+      sizeBytes,
+      url: presigned.publicUrl,
+    };
   }
 
   public async listConversations(limit = 20): Promise<{ conversations: ConversationSummary[] }> {
@@ -359,7 +497,7 @@ export class RestClient {
       if (res.status === 403 && !isRetry && isStaleSession(text)) {
         return this.recoverSession<T>(path, body, key);
       }
-      throw new Error(`[chatly] ${path} failed: ${res.status} ${text}`);
+      throw ChatlyRequestError.from(path, res.status, text);
     }
     return (await res.json()) as T;
   }
@@ -408,24 +546,20 @@ export class RestClient {
  * matched by prefix, so a future third session code recovers for free.
  */
 function isStaleSession(responseText: string): boolean {
-  try {
-    /*
-     * The API NESTS every error: `app-exception.filter.ts` ends with
-     * `send({ error: body })`, so a refusal is `{ error: { code, ... } }`.
-     * This read `body.code` at the top level, which is `undefined` for every
-     * real response — so it returned false every time and the recovery below
-     * never fired. A visitor holding an expired token got the failures this
-     * client was written to absorb.
-     *
-     * The third place with this exact bug: the widget (fixed 2026-10-08),
-     * `sdk-js`, and here. Each was written by reading the previous one.
-     */
-    const body = JSON.parse(responseText) as { error?: { code?: unknown }; code?: unknown };
-    const code = body.error?.code ?? body.code;
-    return typeof code === 'string' && code.startsWith('visitor_session_');
-  } catch {
-    return false;
-  }
+  /*
+   * Reads the code through `readErrorBody`, which handles the NESTING: the API
+   * ends with `send({ error: body })`, so a refusal is
+   * `{ error: { code, ... } }`. This used to read `body.code` at the top level
+   * itself, which is `undefined` for every real response — so it returned
+   * false every time and the recovery below never fired. A visitor holding an
+   * expired token got the failures this client was written to absorb.
+   *
+   * The third place with that exact bug: the widget (fixed 2026-10-08),
+   * `sdk-js`, and here. Each was written by reading the previous one. One
+   * parser now, so a fourth reading cannot drift from it.
+   */
+  const code = readErrorBody(responseText).code;
+  return code !== null && code.startsWith('visitor_session_');
 }
 
 /**
@@ -441,52 +575,6 @@ function newIdempotencyKey(): string {
   const t = Date.now().toString(36);
   const r = Math.floor(Math.random() * 1e16).toString(36);
   return `rn-${t}-${r}`;
-}
-
-/**
- * Base64-encodes a Uint8Array without pulling in `Buffer`. RN exposes
- * `globalThis.btoa` on Hermes; older builds need the manual path.
- */
-function bytesToBase64(bytes: Uint8Array): string {
-  const g = globalThis as { btoa?: (s: string) => string };
-  let binary = '';
-  // Chunk to avoid blowing the call stack on large fromCharCode applies.
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunkSize)));
-  }
-  if (g.btoa !== undefined) {
-    return g.btoa(binary);
-  }
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  // Every index below is the result of bit-masks that produce values in
-  // [0, 63] and `chars` is exactly 64 characters long, so the lookup is always
-  // defined. `charAt` says that in the type system — it returns `string`, not
-  // `string | undefined` — where `chars[n]!` only asserted it past
-  // `noUncheckedIndexedAccess`. Same output for every reachable index.
-  const at = (n: number): string => chars.charAt(n);
-  let result = '';
-  let i = 0;
-  for (; i + 2 < binary.length; i += 3) {
-    const a = binary.charCodeAt(i);
-    const b = binary.charCodeAt(i + 1);
-    const c = binary.charCodeAt(i + 2);
-    result +=
-      at(a >> 2) +
-      at(((a & 0x03) << 4) | (b >> 4)) +
-      at(((b & 0x0f) << 2) | (c >> 6)) +
-      at(c & 0x3f);
-  }
-  if (i < binary.length) {
-    const a = binary.charCodeAt(i);
-    if (i + 1 === binary.length) {
-      result += at(a >> 2) + at((a & 0x03) << 4) + '==';
-    } else {
-      const b = binary.charCodeAt(i + 1);
-      result += at(a >> 2) + at(((a & 0x03) << 4) | (b >> 4)) + at((b & 0x0f) << 2) + '=';
-    }
-  }
-  return result;
 }
 
 async function safeText(res: Response): Promise<string> {

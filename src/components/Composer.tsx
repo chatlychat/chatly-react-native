@@ -56,6 +56,17 @@ export function Composer({
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [staged, setStaged] = useState<Attachment[]>([]);
+  /**
+   * Why the last attachment did not attach.
+   *
+   * The presign route refuses on three conditions and each one's copy is
+   * written for the VISITOR to read: "File uploads are turned off for this
+   * chat", "That file type is not accepted: …", "Files must be under 10 MB".
+   * This used to be a silent no-op — a paperclip tap where nothing appeared
+   * and nothing was said, which reads as a broken app rather than a refused
+   * file.
+   */
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const send = async (): Promise<void> => {
     const trimmed = value.trim();
@@ -92,6 +103,7 @@ export function Composer({
       return;
     }
     setUploading(true);
+    setUploadError(null);
     try {
       const picked = await picker();
       if (picked === null) {
@@ -103,8 +115,11 @@ export function Composer({
         mimeType: picked.mimeType,
       });
       setStaged((prev) => [...prev, attachment]);
-    } catch {
-      // No-op; the user can retry.
+    } catch (err: unknown) {
+      // `ChatlyRequestError.message` is the server's own copy when it sent
+      // any — see RestClient. The fallback is for a transport failure, where
+      // there is nothing from the server to show.
+      setUploadError(err instanceof Error ? err.message : 'Could not attach that file');
     } finally {
       setUploading(false);
     }
@@ -112,6 +127,7 @@ export function Composer({
 
   const removeStaged = (id: string): void => {
     setStaged((prev) => prev.filter((a) => a.id !== id));
+    setUploadError(null);
   };
 
   const sendDisabled = sending || (value.trim().length === 0 && staged.length === 0);
@@ -191,6 +207,19 @@ export function Composer({
             </View>
           ))}
         </ScrollView>
+      )}
+      {uploadError !== null && (
+        <Text
+          accessibilityRole="alert"
+          style={{
+            color: theme.colors.danger,
+            fontSize: theme.typography.sizeSmall,
+            paddingHorizontal: 2,
+            paddingBottom: 6,
+          }}
+        >
+          {uploadError}
+        </Text>
       )}
       <View style={styles.row}>
         <Pressable
