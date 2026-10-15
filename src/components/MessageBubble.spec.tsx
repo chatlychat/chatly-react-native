@@ -223,6 +223,112 @@ describe('MessageBubble + blocks', () => {
     expect(screen.queryByRole('img')).toBeNull();
   });
 
+  /* ── The commerce fields on the shopper's own surface ─────────────────── */
+
+  it('shows the variants and the stock state as a readout, with no picker', () => {
+    /*
+     * A readout and not a `<select>`, because nothing in the protocol carries
+     * a chosen variant: a variant's `value` is never referenced by an action,
+     * so a tappable option would have to invent a wire contract in a
+     * published package. The shopper reads the run of sizes and asks.
+     */
+    const h = harness();
+    h.wrap(
+      row({
+        blocks: {
+          v: 1,
+          blocks: [
+            {
+              type: 'card',
+              title: 'Dunk Low',
+              stock: 'low',
+              variants: [
+                { label: 'US 9', value: 'sku-9', inStock: true },
+                { label: 'US 10', value: 'sku-10' },
+                { label: 'US 11', value: 'sku-11', inStock: false },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    expect(screen.getByLabelText('Options').textContent).toBe(
+      'Options: US 9, US 10, US 11 (unavailable)',
+    );
+    // In words: there is no badge colour to read on a Text surface.
+    expect(screen.getByText('Low stock')).toBeDefined();
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('makes a grid`s `more` tile a REAL button that pages the catalogue', async () => {
+    /*
+     * The one place this renderer differs from both agent surfaces, where the
+     * tile is inert. This is the shopper's own app, so the thing the tile
+     * exists for is a tap — and the label that renders is the TILE's, not the
+     * action's.
+     */
+    const h = harness();
+    h.wrap(
+      row({
+        blocks: {
+          v: 1,
+          blocks: [
+            {
+              type: 'card_grid',
+              cards: [{ title: 'One' }, { title: 'Two' }],
+              more: {
+                label: 'Show all 60',
+                action: { kind: 'postback', label: 'More', value: 'page2' },
+              },
+            },
+          ],
+        },
+      }),
+    );
+    expect(screen.getByText('One')).toBeDefined();
+    expect(screen.getByText('Two')).toBeDefined();
+    await userEvent.click(screen.getByRole('button', { name: 'Show all 60' }));
+    expect(h.rest.postback).toHaveBeenCalledWith(CONV, { value: 'page2', silent: false });
+  });
+
+  it('renders an order timeline, read-only, with the state in words', () => {
+    const h = harness();
+    h.wrap(
+      row({
+        blocks: {
+          v: 1,
+          blocks: [
+            {
+              type: 'order_status',
+              steps: [
+                { label: 'Ordered', state: 'done', at: '2026-10-10T09:00:00Z' },
+                { label: 'Out for delivery', state: 'current' },
+                { label: 'Delivered', state: 'pending' },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    expect(screen.getByLabelText('Order status')).toBeDefined();
+    const rows = screen.getByLabelText('Order status').textContent ?? '';
+    /*
+     * The date is formatted, so the assertion is on what a formatter produces
+     * rather than on an exact string: the runner's timezone decides the rest.
+     * The two failures worth catching are the ISO string reaching a shopper
+     * and the words "Invalid Date" beside a milestone.
+     */
+    expect(rows).toContain('Ordered — Done · ');
+    expect(rows).toContain('2026');
+    expect(rows).not.toContain('2026-10-10T09:00:00Z');
+    expect(rows).not.toMatch(/invalid/i);
+    // No date on a step that has not happened, and no dangling separator.
+    expect(rows).toContain('Out for delivery — In progress');
+    expect(rows).toContain('Delivered — Pending');
+    // Display-only: a timeline has no control in it, by design of the block.
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
   it('renders nothing extra for a message with no blocks', () => {
     const h = harness();
     h.wrap(row({}));

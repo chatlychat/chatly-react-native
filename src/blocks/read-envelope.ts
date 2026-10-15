@@ -94,6 +94,107 @@ function readPairs(raw: unknown): Array<{ label: string; value: string }> {
     : [];
 }
 
+/** The three `card.stock` states, so an unrecognised one never reaches a style. */
+const STOCK_STATES = new Set(['in_stock', 'low', 'out_of_stock']);
+
+/** The three `order_status` step states. An unrecognised one is coerced, not dropped. */
+const STEP_STATES = new Set(['done', 'current', 'pending']);
+
+/**
+ * Variants, keeping unknown keys and normalising the one a renderer branches on.
+ *
+ * A variant needs both halves for the same reason a quick reply does: `label`
+ * is what the shopper reads and `value` is what gets sent, and an option
+ * missing either is unreadable or unanswerable. One bad option loses that
+ * option, not the card.
+ *
+ * `inStock` is forced to absent-or-boolean. A renderer greys out `false` and
+ * leaves absent alone, and the string `"false"` passed through would be
+ * neither — truthy to `!variant.inStock` and not equal to `false`, so two
+ * renderers written the two obvious ways would disagree about whether the
+ * option can be bought.
+ */
+function readVariants(raw: unknown): Bag[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: Bag[] = [];
+  for (const entry of raw) {
+    if (!isBag(entry) || !str(entry['label']) || !str(entry['value'])) {
+      continue;
+    }
+    const variant: Bag = { ...entry };
+    if (typeof variant['inStock'] !== 'boolean') {
+      delete variant['inStock'];
+    }
+    out.push(variant);
+  }
+  return out;
+}
+
+/**
+ * A grid's trailing "more" tile, or null.
+ *
+ * Narrowed to the two action kinds that can page, matching the write schema:
+ * a `copy`, `host_event` or `step` tile would render as a button that shows
+ * no more cards. Dropping the tile keeps the grid — twenty-four cards are the
+ * substance and a missing affordance for the twenty-fifth is not worth losing
+ * them.
+ *
+ * Note that `readAction` here is the native one, so a `url` tile pointing at
+ * anything but `https:` is refused where the shared reader admits it — the
+ * one documented difference between the two readers, for the reason
+ * `read-envelope.parity.spec.ts` states about `Linking.openURL`.
+ */
+function readGridMore(raw: unknown): Bag | null {
+  if (!isBag(raw) || !str(raw['label'])) {
+    return null;
+  }
+  const action = readAction(raw['action']);
+  if (action === null || (action.kind !== 'postback' && action.kind !== 'url')) {
+    return null;
+  }
+  return { ...raw, action };
+}
+
+/**
+ * Timeline steps, with the state COERCED rather than the step dropped.
+ *
+ * `state` reaches a style, so it cannot pass through unrecognised — the
+ * `layout` rule. But the two ways of enforcing that are not equally safe
+ * here. Dropping a step whose state a later release invented (`failed`, say)
+ * removes a ROW from a timeline, and a timeline missing a row reads as an
+ * order that skipped a stage: the words "Payment failed" vanish and the
+ * shopper is told nothing. Coercing to `pending` keeps the label and the
+ * timestamp, which is what a person actually reads, and costs only the shape
+ * of a dot.
+ *
+ * `at` is dropped unless it parses. A string a date formatter cannot read
+ * renders as the words "Invalid Date" next to a fulfilment milestone, which
+ * is worse than no date at all — and `at` is optional precisely because a
+ * pending step has none.
+ */
+function readTimelineSteps(raw: unknown): Bag[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: Bag[] = [];
+  for (const entry of raw) {
+    if (!isBag(entry) || !str(entry['label'])) {
+      continue;
+    }
+    const step: Bag = { ...entry };
+    if (!str(step['state']) || !STEP_STATES.has(step['state'])) {
+      step['state'] = 'pending';
+    }
+    if (step['at'] !== undefined && !(str(step['at']) && !Number.isNaN(Date.parse(step['at'])))) {
+      delete step['at'];
+    }
+    out.push(step);
+  }
+  return out;
+}
+
 function readCard(raw: unknown): Bag | null {
   if (!isBag(raw) || !str(raw['title'])) {
     return null;
@@ -113,6 +214,29 @@ function readCard(raw: unknown): Bag | null {
     } else {
       card['price'] = price;
     }
+  }
+  /*
+   * `variants` and `stock` are touched ONLY when present.
+   *
+   * Not a style choice: this function sets `actions` and `fields`
+   * unconditionally, so every card it returns carries two empty arrays, and
+   * `read-envelope.parity.spec.ts` compares this reader's output with the
+   * shared one's using `toEqual`. A third unconditional key would make every
+   * existing parity case fail on a card that has no variants at all — which
+   * is why the shared reader is written the same way.
+   */
+  if (card['variants'] !== undefined) {
+    const variants = readVariants(card['variants']);
+    if (variants.length === 0) {
+      delete card['variants'];
+    } else {
+      card['variants'] = variants;
+    }
+  }
+  // An unrecognised stock state reaches a style and a badge, so it is dropped
+  // rather than passed through — the `layout` rule.
+  if (card['stock'] !== undefined && !(str(card['stock']) && STOCK_STATES.has(card['stock']))) {
+    delete card['stock'];
   }
   return card;
 }
@@ -152,6 +276,17 @@ function readBlock(raw: unknown): WidgetBlock | null {
       if (grid['layout'] !== 'grid' && grid['layout'] !== 'carousel') {
         delete grid['layout'];
       }
+      // As with `variants` above: only touched when present, so a grid
+      // without a `more` tile reads identically to how it did before the
+      // field existed.
+      if (grid['more'] !== undefined) {
+        const more = readGridMore(grid['more']);
+        if (more === null) {
+          delete grid['more'];
+        } else {
+          grid['more'] = more;
+        }
+      }
       return grid as unknown as WidgetBlock;
     }
     case 'actions': {
@@ -161,6 +296,12 @@ function readBlock(raw: unknown): WidgetBlock | null {
     case 'quick_replies': {
       const options = readPairs(raw['options']);
       return options.length > 0 ? ({ ...raw, options } as unknown as WidgetBlock) : null;
+    }
+    case 'order_status': {
+      const steps = readTimelineSteps(raw['steps']);
+      // No readable step is no timeline: a bordered blank space where the
+      // answer to "where is my order" belongs. Same rule as `quick_replies`.
+      return steps.length > 0 ? ({ ...raw, steps } as unknown as WidgetBlock) : null;
     }
     case 'status':
       // `id` is required: a status block exists to be patched.

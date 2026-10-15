@@ -56,6 +56,51 @@ export type WidgetAction =
       readonly style?: string;
     };
 
+/**
+ * One purchasable option on a card — a size, a colour, a plan tier.
+ *
+ * `label` is what the shopper reads and `value` is what a program receives,
+ * exactly as on a quick reply. `inStock` is OPTIONAL and tri-state on
+ * purpose: absent means the author did not say, which is not the same as
+ * `false`, so a renderer greys out a `false` and leaves an absent one alone.
+ * The reader normalises anything non-boolean away, because the string
+ * `"false"` is truthy and `!inStock` and `inStock === false` would disagree.
+ */
+export interface WidgetCardVariant {
+  readonly label: string;
+  readonly value: string;
+  readonly inStock?: boolean;
+}
+
+/** Whether the thing on the card can be bought right now. Three states, no count. */
+export type WidgetCardStock = 'in_stock' | 'low' | 'out_of_stock';
+
+/**
+ * The trailing "show me more" tile on a grid.
+ *
+ * NARROWED to the two action kinds that can page. The other three are a tile
+ * that silently shows no more cards: `copy` writes the clipboard,
+ * `host_event` goes to the host app, `step` opens a form. The reader drops a
+ * tile carrying one of them and keeps the grid.
+ */
+export interface WidgetGridMore {
+  readonly label: string;
+  readonly action: Extract<WidgetAction, { readonly kind: 'postback' | 'url' }>;
+}
+
+/**
+ * One milestone on an `order_status` timeline.
+ *
+ * `at` is optional — a `pending` step has not happened — and the reader drops
+ * one that `Date.parse` refuses, because a date formatter handed it prints
+ * the words "Invalid Date" beside a fulfilment milestone.
+ */
+export interface WidgetOrderStatusStep {
+  readonly label: string;
+  readonly at?: string;
+  readonly state: 'done' | 'current' | 'pending';
+}
+
 export interface WidgetCard {
   readonly id?: string;
   readonly title: string;
@@ -64,6 +109,9 @@ export interface WidgetCard {
   readonly badge?: string;
   readonly price?: Money;
   readonly fields?: ReadonlyArray<{ readonly label: string; readonly value: string }>;
+  /** Pickable options, rendered as a select by a surface that can pick. */
+  readonly variants?: readonly WidgetCardVariant[];
+  readonly stock?: WidgetCardStock;
   readonly actions?: readonly WidgetAction[];
 }
 
@@ -86,6 +134,11 @@ export type WidgetBlock =
       readonly type: 'card_grid';
       readonly cards: readonly WidgetCard[];
       readonly layout?: 'grid' | 'carousel';
+      /**
+       * A trailing tile, so a grid at its cap is not a dead end. NOT counted
+       * against the 24-card cap, so a full grid can still offer the next page.
+       */
+      readonly more?: WidgetGridMore;
       readonly id?: string;
     }
   | { readonly type: 'actions'; readonly actions: readonly WidgetAction[]; readonly id?: string }
@@ -99,6 +152,19 @@ export type WidgetBlock =
       readonly id: string;
       readonly text: string;
       readonly state?: 'running' | 'done' | 'failed';
+    }
+  /**
+   * A read-only fulfilment timeline. Display only — there is no money here.
+   *
+   * The half of a checkout block that a support conversation actually needs:
+   * "where is my order" answered in the thread. Nothing in it is a control —
+   * no action, no amount, no payment reference — and the write schema is
+   * `.strict()`, so a `total` or an `actions` array on it is a 400.
+   */
+  | {
+      readonly type: 'order_status';
+      readonly steps: readonly WidgetOrderStatusStep[];
+      readonly id?: string;
     }
   | { readonly type: 'divider'; readonly id?: string };
 

@@ -38,6 +38,56 @@ import { useChatly } from '../useChatly';
 import type { Money } from '../blocks/money';
 import type { WidgetAction, WidgetBlock, WidgetCard } from '../blocks/types';
 
+/**
+ * Availability and the timeline states, in words.
+ *
+ * The stored plain-text projection keeps the author's enum member verbatim
+ * because it is generated on the server and read back by a model; a surface
+ * rendering for a person writes its own label. English literals because this
+ * package has no translation layer — a consumer who needs another language
+ * renders the envelope themselves, which `readBlocksEnvelope` is exported for.
+ */
+const STOCK_LABEL = {
+  in_stock: 'In stock',
+  low: 'Low stock',
+  out_of_stock: 'Out of stock',
+} as const;
+
+const STEP_LABEL = { done: 'Done', current: 'In progress', pending: 'Pending' } as const;
+
+/**
+ * A milestone's timestamp, or '' if this engine cannot format one.
+ *
+ * `Intl.DateTimeFormat` rather than `new Date(at).toLocaleString()`, for the
+ * reason `blocks/money.ts` gives about `Intl.NumberFormat`: React Native
+ * ships a full ICU on iOS and, since 0.73 with Hermes `intl` enabled, on
+ * Android — and the `catch` is what covers an engine without it, so a
+ * timeline still renders its labels rather than taking the thread down.
+ *
+ * The reader has already dropped an `at` that `Date.parse` refuses, so the
+ * words "Invalid Date" cannot reach here from a malformed row; the guard
+ * below is about the FORMATTER being absent, not the value being bad.
+ */
+function formatStepTime(at: string): string {
+  try {
+    return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
+      new Date(at),
+    );
+  } catch {
+    return '';
+  }
+}
+
+/** One timeline row's text. Absent or unformattable time leaves no dangling separator. */
+function stepLine(step: {
+  readonly label: string;
+  readonly at?: string;
+  readonly state: keyof typeof STEP_LABEL;
+}): string {
+  const when = step.at === undefined ? '' : formatStepTime(step.at);
+  return `${step.label} — ${STEP_LABEL[step.state]}${when === '' ? '' : ` · ${when}`}`;
+}
+
 export interface MessageBlocksProps {
   /** The stored envelope, straight off the message row. Unvalidated. */
   readonly blocks: unknown;
@@ -145,6 +195,11 @@ function Card(props: {
           {card.subtitle}
         </Text>
       )}
+      {card.stock !== undefined && (
+        <Text style={{ color: theme.colors.mutedForeground, fontSize: theme.typography.sizeSmall }}>
+          {STOCK_LABEL[card.stock]}
+        </Text>
+      )}
       <Price value={card.price} />
       {(card.fields ?? []).map((f, i) => (
         <Text
@@ -154,6 +209,29 @@ function Card(props: {
           {`${f.label}: ${f.value}`}
         </Text>
       ))}
+      {/*
+        The options the shopper was offered, as a READOUT and not a picker.
+
+        Deliberate, and not a budget decision: nothing in the protocol carries
+        a chosen variant. A variant's `value` is "what a program receives",
+        but no action references it — a card's own `actions` carry their own
+        `value`, and there is no field on a postback for the option that was
+        selected. A tappable option would therefore have to invent a wire
+        contract here, in a published package, ahead of the widget that owns
+        the picking UX. Shown instead, so the shopper can read the run of
+        sizes and ask; `inStock === false` is marked and an ABSENT `inStock`
+        is not, because the author not saying is not the same as sold out.
+      */}
+      {card.variants !== undefined && card.variants.length > 0 && (
+        <Text
+          accessibilityLabel="Options"
+          style={{ color: theme.colors.mutedForeground, fontSize: theme.typography.sizeSmall }}
+        >
+          {`Options: ${card.variants
+            .map((v) => (v.inStock === false ? `${v.label} (unavailable)` : v.label))
+            .join(', ')}`}
+        </Text>
+      )}
       {(card.actions ?? []).length > 0 && (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
           {(card.actions ?? []).map((a, i) => (
@@ -185,6 +263,13 @@ function Block(props: {
        * emits — `**bold**`, a bullet, a link — read acceptably raw, and the
        * alternative a consumer has is to render the block themselves from the
        * envelope, which `readBlocksEnvelope` is exported for.
+       *
+       * The dashboard inbox DOES render it now, through the shared
+       * `renderMarkdown` and the allow-listed HTML walk it already has.
+       * Neither is reusable here: that renderer emits HTML and there is no
+       * HTML in React Native, so the only native option is a second inline
+       * parser mapping a subset onto nested `Text` styles — a parser in a
+       * published package, for asterisks that are already legible.
        */
       return <Text style={body}>{block.markdown}</Text>;
     case 'media':
@@ -212,13 +297,39 @@ function Block(props: {
       );
     case 'card':
       return <Card card={block} onRun={onRun} />;
-    case 'card_grid':
+    case 'card_grid': {
+      /*
+       * The trailing tile, and here it WORKS — unlike on the two agent
+       * surfaces, where it is inert because an agent has no visitor session.
+       * This is the shopper's own app, so the thing the tile exists for (ask
+       * the bot for the next page, or open the full catalogue) is a tap. Its
+       * action is already narrowed to `postback | url` by the reader, which
+       * is the whole point of that narrowing: the other three kinds would be
+       * a button that shows no more cards.
+       *
+       * `ActionButton` and not a bespoke control, so the tile obeys the same
+       * `onRun` path, the same theme and the same accessible name as every
+       * other button in the thread.
+       */
+      /*
+       * The TILE's label is what renders, not the action's.
+       *
+       * `more` carries both — `{ label: 'Show all 60', action: { label:
+       * 'More', … } }` — and the tile is the thing the shopper reads. The
+       * override only touches the label, so the postback's `value` and the
+       * url's `href` reach `onRun` exactly as authored.
+       */
+      const more =
+        block.more === undefined ? null : (
+          <ActionButton action={{ ...block.more.action, label: block.more.label }} onRun={onRun} />
+        );
       return block.layout === 'carousel' ? (
         <ScrollView horizontal accessibilityLabel="Scrollable options">
-          <View style={{ flexDirection: 'row', gap: 8 }}>
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
             {block.cards.map((c, i) => (
               <Card key={c.id ?? String(i)} card={c} onRun={onRun} width={240} />
             ))}
+            {more}
           </View>
         </ScrollView>
       ) : (
@@ -226,8 +337,10 @@ function Block(props: {
           {block.cards.map((c, i) => (
             <Card key={c.id ?? String(i)} card={c} onRun={onRun} />
           ))}
+          {more}
         </View>
       );
+    }
     case 'actions':
       return (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
@@ -258,6 +371,31 @@ function Block(props: {
             >
               <Text style={body}>{o.label}</Text>
             </Pressable>
+          ))}
+        </View>
+      );
+    case 'order_status':
+      /*
+       * The fulfilment timeline — "where is my order", answered in the thread
+       * instead of a link out to a tracking page the shopper has to find an
+       * order number for.
+       *
+       * Nothing in it is a control, and that is the block's design rather
+       * than this renderer's restraint: there is no action, no amount and no
+       * payment reference, because a `checkout` block would have put this
+       * package in the payment path. The state is written out in words beside
+       * the label — a coloured dot alone says nothing to a screen reader, and
+       * this surface has no dot.
+       */
+      return (
+        <View accessibilityLabel="Order status" style={{ gap: 2 }}>
+          {block.steps.map((step, i) => (
+            <Text
+              key={`${step.label}-${String(i)}`}
+              style={step.state === 'pending' ? muted : body}
+            >
+              {stepLine(step)}
+            </Text>
           ))}
         </View>
       );
