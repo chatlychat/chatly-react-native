@@ -1,5 +1,29 @@
 # @chatlychat/react-native
 
+## 0.3.0 — 2026-10-16
+
+Released because the code below was in the repository and not on npm. A gate
+added today (`check-unreleased-package-changes.mjs`) found this package and the
+CLI sitting in the same state `@chatlychat/sdk-node` was caught in by a
+customer: source moved on, version did not, so nobody could install the work.
+
+### Added
+
+- The four commerce block fields render — `card.variants`, `card.stock`,
+  `card_grid.more` and `order_status` — through the same envelope reader every
+  other surface uses, with a parity spec proving the composed reader is
+  byte-identical to the widget's split one.
+
+### Fixed
+
+- **Realtime could not connect at all.** The handshake omitted
+  `kind: 'visitor'`, and `handshakeAuthSchema` defaults that to AGENT, so a
+  visitor's HS256 token was verified as RS256 and refused with a bare
+  `Unauthorized` naming neither credential. The token is also
+  conversation-scoped with a 1h TTL, so `auth` is now re-read per connect
+  ATTEMPT — a frozen auth object is replayed on reconnect and the socket dies
+  silently for the rest of the session.
+
 ## 0.2.0
 
 ### Fixed
