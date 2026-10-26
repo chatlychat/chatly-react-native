@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 
+import { resolveAttachment, type PickedAttachment } from '../attachments';
 import { useChatly } from '../useChatly';
 
 import type { Attachment } from '../client/types';
@@ -29,28 +30,48 @@ export interface ComposerProps {
    */
   value?: string;
   onChangeText?: (text: string) => void;
+  /**
+   * Pick an attachment. Return `{ bytes }`, `{ uri }` or `{ base64 }` — the
+   * SDK reads the file — with `filename` and `mimeType` optional. `null`
+   * means the visitor cancelled.
+   *
+   * Preferred over `globalThis.__chatlyPicker`, which is still read when this
+   * is absent: a global is set once per app, where which picker a screen
+   * wants (camera on a product screen, documents in support) is per screen.
+   */
+  pickAttachment?: () => Promise<PickedAttachment | null>;
 }
 
 /**
  * Bottom composer with a paperclip attachment button, multi-line text input,
  * and a send button.
  *
- * Attachment picking depends on a document-picker module being available at
- * runtime. We do NOT take a hard dependency on any picker package — instead
- * the picker is resolved lazily via `globalThis.__chatlyPicker`. Hosts that
- * want native attachment picking install one of:
- *   - `expo-document-picker`
- *   - `@react-native-documents/picker`
- *   - `react-native-document-picker`
- * and assign a small shim that returns `{ bytes, filename, mimeType }`. When
- * no picker is present the button degrades gracefully (still visible, but
- * surfaces a "Pick disabled" hint).
+ * Attachment picking takes no dependency on any picker package — this
+ * package has no native dependencies, and a consumer adding one has to
+ * rebuild. The host supplies the picker:
+ *
+ *   <Composer pickAttachment={async () => { … }} />
+ *
+ * and may return `{ bytes }`, `{ uri }` or `{ base64 }`, with `filename` and
+ * `mimeType` optional. `resolveAttachment` reads the file. That matters
+ * because no Expo picker returns bytes — `expo-image-picker` and
+ * `expo-document-picker` both give a `uri` — so the old bytes-only contract
+ * made every Expo app write a `fetch(uri)` read or a base64 decoder first
+ * (Crossly reported it, and noted some engines have no `atob`).
+ *
+ * `globalThis.__chatlyPicker` still works and is still read when no prop is
+ * given: it is the documented contract of 0.9.0 through 0.11.0 and apps are
+ * on it. The prop is preferred because a global is set once per app, where
+ * the picker a screen wants is a per-screen decision — a buyer app offering
+ * the camera on a product screen and a document picker in support is the case
+ * that made it awkward.
+ *
+ * With neither, the button degrades gracefully: still visible, with a
+ * "Pick disabled" hint.
  */
 declare global {
   // eslint-disable-next-line no-var
-  var __chatlyPicker:
-    | (() => Promise<{ bytes: Uint8Array; filename: string; mimeType: string } | null>)
-    | undefined;
+  var __chatlyPicker: (() => Promise<PickedAttachment | null>) | undefined;
 }
 
 export function Composer({
@@ -59,6 +80,7 @@ export function Composer({
   placeholder = 'Type a message…',
   value: controlled,
   onChangeText,
+  pickAttachment,
 }: ComposerProps): React.JSX.Element {
   const { rest, theme } = useChatly();
   const [own, setOwn] = useState('');
@@ -107,10 +129,11 @@ export function Composer({
   };
 
   const attach = async (): Promise<void> => {
-    const picker = globalThis.__chatlyPicker;
+    // The prop wins; the global is the 0.9-0.11 contract and still honoured.
+    const picker = pickAttachment ?? globalThis.__chatlyPicker;
     if (picker === undefined) {
-      // No picker installed — silently no-op so the host doesn't crash. Hosts
-      // can detect this by checking `globalThis.__chatlyPicker` themselves.
+      // No picker supplied — silently no-op so the host doesn't crash. Hosts
+      // can detect this by checking the same two places.
       return;
     }
     if (uploading) {
@@ -123,11 +146,10 @@ export function Composer({
       if (picked === null) {
         return;
       }
-      const attachment = await rest.uploadAttachment({
-        bytes: picked.bytes,
-        filename: picked.filename,
-        mimeType: picked.mimeType,
-      });
+      // Reads the file when the picker gave a uri or base64 — see
+      // `resolveAttachment`. A thrown error lands in the catch below and
+      // reaches the visitor as upload copy, which is what it is.
+      const attachment = await rest.uploadAttachment(await resolveAttachment(picked));
       setStaged((prev) => [...prev, attachment]);
     } catch (err: unknown) {
       // `ChatlyRequestError.message` is the server's own copy when it sent

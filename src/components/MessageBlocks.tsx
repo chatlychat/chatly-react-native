@@ -47,7 +47,7 @@ import { Image, Linking, Pressable, ScrollView, Text, View } from 'react-native'
 
 import { ActionButton, Card } from './BlockCard';
 import { BlockTable } from './BlockTable';
-import { isSafeNavigatePath, navigateTarget } from '../blocks/navigate';
+import { isSafeNavigatePath, navigateTarget, ownSitePath } from '../blocks/navigate';
 import { readBlocksEnvelope } from '../blocks/read-envelope';
 import { useChatly } from '../useChatly';
 
@@ -329,6 +329,24 @@ export function MessageBlocks(props: MessageBlocksProps): React.JSX.Element | nu
    * "Added to your cart" under the card and tells the owning bot. Everything
    * else is a call this package can make itself.
    */
+  /** `navigate`'s behaviour, shared with an own-site `url` action. */
+  const runNavigate = (path: string, label: string, actionId: string): void => {
+    if (!isSafeNavigatePath(path)) {
+      return;
+    }
+    const handled = onNavigate?.({
+      path,
+      label,
+      conversationId: props.conversationId,
+      messageId: props.messageId,
+      actionId,
+    });
+    const target = navigateTarget(config.siteOrigin, path);
+    if (handled !== true && target !== null) {
+      void Linking.openURL(target);
+    }
+  };
+
   const onRun = (action: WidgetAction): void => {
     const conversationId = props.conversationId;
     switch (action.kind) {
@@ -341,7 +359,24 @@ export function MessageBlocks(props: MessageBlocksProps): React.JSX.Element | nu
           actionId: action.id ?? action.event,
         });
         return;
-      case 'url':
+      case 'url': {
+        /*
+         * An href on the app's OWN site routes like `navigate`, through the
+         * same guard and the same hook — Crossly's round 2. An older card, an
+         * agent who typed a full link and a help article all arrive as `url`,
+         * and sending the buyer to the system browser for a screen the app
+         * owns loses their place. `ownSitePath` returns null for every other
+         * origin, so this cannot capture a third-party link.
+         *
+         * Before `onOpenUrl`, deliberately: a host that set BOTH hooks means
+         * `onNavigate` for its own pages and `onOpenUrl` for the rest, which
+         * is the split the two hooks exist to express.
+         */
+        const own = ownSitePath(config.siteOrigin, action.href);
+        if (own !== null) {
+          runNavigate(own, action.label, action.href);
+          return;
+        }
         /*
          * The app gets first refusal. `onOpenUrl` returning true means it
          * routed this itself — a listing, a cart, a watchlist screen the app
@@ -357,27 +392,14 @@ export function MessageBlocks(props: MessageBlocksProps): React.JSX.Element | nu
         }
         void Linking.openURL(action.href);
         return;
-      case 'navigate': {
+      }
+      case 'navigate':
         /*
          * Re-checked at the sink, like the web widget: the app's router gets
          * this string, and `//evil.example` handed to a router leaves the app.
          */
-        if (!isSafeNavigatePath(action.path)) {
-          return;
-        }
-        const handled = onNavigate?.({
-          path: action.path,
-          label: action.label,
-          conversationId,
-          messageId: props.messageId,
-          actionId: action.id ?? action.path,
-        });
-        const target = navigateTarget(config.siteOrigin, action.path);
-        if (handled !== true && target !== null) {
-          void Linking.openURL(target);
-        }
+        runNavigate(action.path, action.label, action.id ?? action.path);
         return;
-      }
       case 'postback':
         if (conversationId !== null) {
           void rest.postback(conversationId, {

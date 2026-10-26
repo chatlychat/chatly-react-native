@@ -118,7 +118,7 @@ export class RestClient {
     this.configTimezone = config.timezone;
     const host = config.apiHost ?? DEFAULT_API_HOST;
     const scheme = config.secure === false ? 'http' : 'https';
-    this.apiUrl = `${scheme}://${host}`;
+    this.apiUrl = config.apiUrl?.replace(/\/+$/, '') ?? `${scheme}://${host}`;
     this.tokenStore = new TokenStore(config.publicId, config.storage);
     this.identityStore = new IdentityStore(config.publicId, config.storage);
   }

@@ -12,7 +12,17 @@ import type { ChatlyStorage } from '../storage/TokenStore';
 export interface ChatlyConfig {
   /** Public workspace identifier, e.g. `pub_abc123`. */
   publicId: string;
-  /** API host (no scheme). Defaults to `api.chatlychat.com`. */
+  /**
+   * The full API URL, e.g. `https://api.chatlychat.com`. **Prefer this.**
+   *
+   * Every other client takes a URL — `createChatlyCore`, the identity
+   * endpoints, the backend SDKs — so a host that already holds one had to
+   * parse it apart into `apiHost` + `secure` just for this package. It wins
+   * over both when set. A trailing slash is trimmed, because
+   * `${apiUrl}/v1/...` with one gives a `//` path that some proxies 404.
+   */
+  apiUrl?: string;
+  /** API host (no scheme). Defaults to `api.chatlychat.com`. `apiUrl` wins. */
   apiHost?: string;
   /** Override the realtime host. Defaults to the apiHost. */
   realtimeHost?: string;

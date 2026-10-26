@@ -338,3 +338,45 @@ describe('the real error envelope', () => {
     expect(calls.filter((c) => c.path === '/v1/widget/conversations/list')).toHaveLength(1);
   });
 });
+
+/**
+ * `apiUrl`, which every other client in this product already takes.
+ *
+ * `createChatlyCore`, the identity endpoints and the backend SDKs all accept a
+ * URL, so a host that already held one had to take it apart into
+ * `apiHost` + `secure` for this package alone. Crossly's round 2.
+ */
+describe('apiUrl', () => {
+  it('wins over apiHost and secure', () => {
+    const c = new RestClient({
+      publicId: PUBLIC_ID,
+      apiUrl: 'https://api.chatlychat.com',
+      apiHost: 'ignored.test',
+      secure: false,
+    });
+    expect(c.baseUrl).toBe('https://api.chatlychat.com');
+  });
+
+  it('trims a trailing slash, which would make a // path', () => {
+    // `${apiUrl}/v1/...` with a trailing slash gives `//v1/...`, which some
+    // proxies answer 404 to rather than normalising.
+    const c = new RestClient({ publicId: PUBLIC_ID, apiUrl: 'https://api.test/' });
+    expect(c.baseUrl).toBe('https://api.test');
+  });
+
+  it('leaves the apiHost path working for every existing app', () => {
+    expect(new RestClient({ publicId: PUBLIC_ID, apiHost: 'api.test' }).baseUrl).toBe(
+      'https://api.test',
+    );
+    expect(
+      new RestClient({ publicId: PUBLIC_ID, apiHost: 'api.test', secure: false }).baseUrl,
+    ).toBe('http://api.test');
+  });
+
+  it('defaults to Chatly, not to somebody else', () => {
+    // `api.chatly.com` shipped as the default in 0.1.1 — a real host owned by
+    // a third party, which every app that omitted `apiHost` sent its visitor
+    // sessions to. The gate that missed it only looked for dev-shaped names.
+    expect(new RestClient({ publicId: PUBLIC_ID }).baseUrl).toBe('https://api.chatlychat.com');
+  });
+});
