@@ -1,5 +1,15 @@
 # @chatlychat/react-native
 
+## 0.13.0 — 2026-10-26
+
+- **`PickedAttachment` is exported.** The type `pickAttachment` returns was only reachable as `ComposerProps['pickAttachment']`, which is what a host writing a picker had to type against (Crossly). Cosmetic, and `0.12.0`'s whole point was that writing a picker is the host's job, so the type it returns has to have a name.
+
+## 0.12.0 — 2026-10-26
+
+- **A picker may return a `uri` or `base64`, not only bytes.** `<Composer pickAttachment>` (preferred over `globalThis.__chatlyPicker`, which still works) accepts `{ bytes }`, `{ uri }` or `{ base64 }` with `filename` and `mimeType` optional, and the SDK reads the file. **No Expo picker returns bytes** — `expo-image-picker` and `expo-document-picker` both give a `uri` — so the old contract made every Expo app write a `fetch(uri)` read or its own base64 decoder, since some RN engines have no `atob`. `base64` wins over `uri` when both are present (the in-memory copy is the cheaper read) and a `data:` prefix is accepted whole. No `expo-image-picker` adapter: that would mean taking the dependency.
+- **`config.apiUrl` takes a whole URL** and wins over `apiHost` / `secure`, as every other client already did. Trailing slash trimmed. The default host is `api.chatlychat.com`, now pinned by a test — the docs page carried a warning naming a domain we do not own, true of `0.1.1` and stale ever since.
+- **An own-site `url` action routes through `onNavigate`.** An older card, an agent typing a full link and a help article all arrive as `url` rather than `navigate`, and the system browser lost the visitor's place for a screen the app owns. Needs `config.siteOrigin`; the origin is compared as a parsed `URL.origin`, not a string prefix, so `https://shop.example.evil.test` is not treated as own-site. The same path guard applies and an `http:` `siteOrigin` routes nothing.
+
 ## 0.11.0 — 2026-10-26
 
 - **Typing indicator, with the bot's `label`.** `<MessagesList>` shows who is typing, or the bot's own words ("Looking at your photo…") when the `typing.start` event carries a `label`; it clears on `typing.stop`, on the agent's or bot's next message, and after 3.5s without another `start` (the core's window). New `useTyping(conversationId)` returns `{ actorType, actorId, displayName, label } | null` for a custom thread. Receiving only: this SDK still does not send the visitor's typing.

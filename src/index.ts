@@ -25,6 +25,12 @@ export type { MessagesListProps } from './components/MessagesList';
 
 export { Composer } from './components/Composer';
 export type { ComposerProps } from './components/Composer';
+/**
+ * What `pickAttachment` returns. Exported because a host writing a picker has
+ * to name the type, and without it the only way to reach it was
+ * `ComposerProps['pickAttachment']` (Crossly, 2026-10-26).
+ */
+export type { PickedAttachment } from './attachments';
 
 export { MessageBubble } from './components/MessageBubble';
 export type { MessageBubbleProps } from './components/MessageBubble';
