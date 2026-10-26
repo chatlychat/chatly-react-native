@@ -37,7 +37,16 @@ export function ChatlyWidget({
   enableHelpCenter = true,
   initialConversationId,
 }: ChatlyWidgetProps): React.JSX.Element {
-  const { isReady, error, conversations, theme, refresh, init } = useChatly();
+  const { isReady, error, conversations, theme, refresh, init, rest } = useChatly();
+  const remove = useCallback(
+    (id: string) => {
+      void rest
+        .dismiss(id)
+        .then(refresh)
+        .catch(() => undefined);
+    },
+    [rest, refresh],
+  );
   const [tab, setTab] = useState<Tab>('messages');
   const [selected, setSelected] = useState<string | null>(initialConversationId ?? null);
 
@@ -163,7 +172,7 @@ export function ChatlyWidget({
   return (
     <SafeAreaView style={[styles.fill, { backgroundColor: theme.colors.background }]}>
       {header}
-      <ConversationList conversations={conversations} onOpen={setSelected} />
+      <ConversationList conversations={conversations} onOpen={setSelected} onRemove={remove} />
       <Composer conversationId={null} onSent={onSent} placeholder="Start a new conversation…" />
     </SafeAreaView>
   );
@@ -172,71 +181,86 @@ export function ChatlyWidget({
 function ConversationList({
   conversations,
   onOpen,
+  onRemove,
 }: {
   conversations: ConversationSummary[];
   onOpen: (id: string) => void;
+  onRemove: (id: string) => void;
 }): React.JSX.Element {
   const { theme } = useChatly();
   const renderItem = ({ item }: ListRenderItemInfo<ConversationSummary>): React.JSX.Element => (
-    <Pressable
-      onPress={() => onOpen(item.id)}
-      accessibilityRole="button"
-      accessibilityLabel={`Open conversation ${item.subject ?? item.id}`}
-      style={({ pressed }) => [
-        {
-          padding: theme.spacing.md,
-          backgroundColor: pressed ? theme.colors.surface : theme.colors.background,
-          borderBottomColor: theme.colors.border,
-          borderBottomWidth: StyleSheet.hairlineWidth,
-          flexDirection: 'row',
-          alignItems: 'center',
-        },
-      ]}
-    >
-      <View style={{ flex: 1 }}>
-        <Text
-          style={{
-            color: theme.colors.foreground,
-            fontWeight: theme.typography.weightMedium,
-            fontSize: theme.typography.sizeBody,
-          }}
-        >
-          {item.subject ?? 'Conversation'}
-        </Text>
-        <Text
-          style={{
-            color: theme.colors.mutedForeground,
-            fontSize: theme.typography.sizeSmall,
-            marginTop: 2,
-          }}
-          numberOfLines={1}
-        >
-          {item.lastMessagePreview ?? 'No messages yet.'}
-        </Text>
-      </View>
-      {item.unreadContactCount > 0 && (
-        <View
-          style={{
-            backgroundColor: theme.colors.primary,
-            borderRadius: 999,
-            minWidth: 22,
-            paddingHorizontal: 6,
-            paddingVertical: 2,
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <Pressable
+        onPress={() => onOpen(item.id)}
+        accessibilityRole="button"
+        accessibilityLabel={`Open conversation ${item.subject ?? item.id}`}
+        style={({ pressed }) => [
+          {
+            padding: theme.spacing.md,
+            backgroundColor: pressed ? theme.colors.surface : theme.colors.background,
+            borderBottomColor: theme.colors.border,
+            borderBottomWidth: StyleSheet.hairlineWidth,
+            flexDirection: 'row',
             alignItems: 'center',
-          }}
-        >
+            flex: 1,
+          },
+        ]}
+      >
+        <View style={{ flex: 1 }}>
           <Text
             style={{
-              color: theme.colors.onPrimary,
-              fontSize: theme.typography.sizeSmall,
-              fontWeight: theme.typography.weightBold,
+              color: theme.colors.foreground,
+              fontWeight: theme.typography.weightMedium,
+              fontSize: theme.typography.sizeBody,
             }}
           >
-            {item.unreadContactCount}
+            {item.subject ?? 'Conversation'}
+          </Text>
+          <Text
+            style={{
+              color: theme.colors.mutedForeground,
+              fontSize: theme.typography.sizeSmall,
+              marginTop: 2,
+            }}
+            numberOfLines={1}
+          >
+            {item.lastMessagePreview ?? 'No messages yet.'}
           </Text>
         </View>
-      )}
-    </Pressable>
+        {item.unreadContactCount > 0 && (
+          <View
+            style={{
+              backgroundColor: theme.colors.primary,
+              borderRadius: 999,
+              minWidth: 22,
+              paddingHorizontal: 6,
+              paddingVertical: 2,
+              alignItems: 'center',
+            }}
+          >
+            <Text
+              style={{
+                color: theme.colors.onPrimary,
+                fontSize: theme.typography.sizeSmall,
+                fontWeight: theme.typography.weightBold,
+              }}
+            >
+              {item.unreadContactCount}
+            </Text>
+          </View>
+        )}
+      </Pressable>
+      <Pressable
+        onPress={() => onRemove(item.id)}
+        accessibilityRole="button"
+        accessibilityLabel={`Remove conversation ${item.subject ?? item.id} from this list`}
+        style={{ padding: theme.spacing.md }}
+      >
+        <Text style={{ color: theme.colors.mutedForeground, fontSize: theme.typography.sizeSmall }}>
+          Remove
+        </Text>
+      </Pressable>
+    </View>
   );
   return (
     <FlatList

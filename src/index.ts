@@ -15,6 +15,7 @@ export type {
 } from './ChatlyProvider';
 
 export { useChatly } from './useChatly';
+export { useTyping } from './useTyping';
 
 export { ChatlyWidget } from './ChatlyWidget';
 export type { ChatlyWidgetProps } from './ChatlyWidget';
@@ -95,6 +96,8 @@ export type {
   ChatlyIdentity,
   ConversationStatus,
   ConversationSummary,
+  ProfileView,
+  TypingState,
   InitResponse,
   KbArticle,
   KbResult,

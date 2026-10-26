@@ -232,6 +232,10 @@ is not 100.
 | `MessageBlocks`, `MessageCanvas`                          | Cards and canvas steps, rendered                   |
 | `onAction` on `ChatlyProvider`                            | `host_event` card actions, for your app to run     |
 | `RestClient`, `RealtimeClient`                            | Headless access                                    |
+| `useTyping(id)`                                           | Who is typing, with the bot's `label`              |
+| `useChatly().profile`, `rest.resolveProfile`              | Starters, quick links, copy for this visitor       |
+| `rest.dismiss`                                            | Remove a thread from the visitor's list            |
+| `Composer` `value` / `onChangeText`                       | Host-controlled draft                              |
 | `rest.reportAction`                                       | Tell the thread and the bot what your app did      |
 | `readBlocksEnvelope`, `readCanvas`                        | Render blocks yourself, with the same refusals     |
 | `formatMoney`, `readMoney`                                | Minor-unit prices, formatted for the device locale |

@@ -23,6 +23,7 @@ import type {
   ChatlyIdentity,
   ConversationSummary,
   InitResponse,
+  ProfileView,
   PushTokenRegistration,
   SessionState,
 } from './client/types';
@@ -66,6 +67,13 @@ export interface ChatlyContextValue {
    * over REST. Blanking the chat for it would be worse than the degradation.
    */
   realtimeError: Error | null;
+  /**
+   * The audience profile this visitor matches (`POST /v1/widget/profile/resolve`):
+   * `starterPrompts`, `quickLinks` and `copy`, the same ones the web widget
+   * shows. Null until resolved, and null if the call failed (draw your own
+   * defaults then). Re-resolved after `identify()`.
+   */
+  profile: ProfileView | null;
   identify: (identity: ChatlyIdentity) => Promise<void>;
   logout: () => Promise<void>;
   setPushToken: (registration: PushTokenRegistration) => Promise<void>;
@@ -214,6 +222,7 @@ export function ChatlyProvider({
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [realtimeError, setRealtimeError] = useState<Error | null>(null);
+  const [profile, setProfile] = useState<ProfileView | null>(null);
   const mounted = useRef(true);
 
   /**
@@ -265,6 +274,14 @@ export function ChatlyProvider({
          * from a visitor at all. A visitor socket is minted per CONVERSATION
          * and opened by the effect below.
          */
+        try {
+          const resolved = await rest.resolveProfile();
+          if (mounted.current) {
+            setProfile(resolved);
+          }
+        } catch {
+          // Non-fatal: the app falls back to its own defaults.
+        }
         try {
           const list = await rest.listConversations();
           if (mounted.current) {
@@ -389,6 +406,7 @@ export function ChatlyProvider({
     setSession(null);
     setInit(null);
     setConversations([]);
+    setProfile(null);
     setRealtimeError(null);
   }, [realtime, rest]);
 
@@ -427,6 +445,7 @@ export function ChatlyProvider({
       activeConversationId,
       setActiveConversation,
       realtimeError,
+      profile,
       identify,
       logout,
       setPushToken,
@@ -448,6 +467,7 @@ export function ChatlyProvider({
       activeConversationId,
       setActiveConversation,
       realtimeError,
+      profile,
       identify,
       logout,
       setPushToken,

@@ -1,5 +1,12 @@
 # @chatlychat/react-native
 
+## 0.11.0 — 2026-10-26
+
+- **Typing indicator, with the bot's `label`.** `<MessagesList>` shows who is typing, or the bot's own words ("Looking at your photo…") when the `typing.start` event carries a `label`; it clears on `typing.stop`, on the agent's or bot's next message, and after 3.5s without another `start` (the core's window). New `useTyping(conversationId)` returns `{ actorType, actorId, displayName, label } | null` for a custom thread. Receiving only: this SDK still does not send the visitor's typing.
+- **Profile resolution.** `rest.resolveProfile(locale?)` calls `POST /v1/widget/profile/resolve` and `useChatly().profile` holds the result (`starterPrompts`, `quickLinks`, `copy`, `matched`) after init and after `identify()`; `null` until resolved or if the call failed. New types `ProfileView`, `TypingState`.
+- **Remove a conversation from the visitor's list.** `rest.dismiss(conversationId)` calls `POST /v1/widget/conversations/:id/dismiss`; `<ChatlyWidget />` rows have a "Remove" action. Not a delete: the workspace keeps the record and a newer message brings the thread back.
+- **Controlled `<Composer>`.** New `value` and `onChangeText` props let the host own the draft (speech recognition, a tapped starter). Omit both and nothing changes. No imperative `setDraft`: controlled props cover both cases without a ref API to keep in step.
+
 ## 0.10.0 — 2026-10-26
 
 - **Bring your own storage.** `ChatlyConfig.storage` takes anything with `getItem` / `setItem` / `removeItem`, sync or async (AsyncStorage, expo-secure-store or MMKV behind a small wrapper). Omit it and nothing changes: the lazy AsyncStorage `require` is still the fallback. New type `ChatlyStorage`.

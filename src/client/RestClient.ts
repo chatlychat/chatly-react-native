@@ -20,6 +20,7 @@ import type {
   KbArticle,
   KbResult,
   MessageRow,
+  ProfileView,
   StartResponse,
 } from './types';
 
@@ -306,6 +307,33 @@ export class RestClient {
         ...(upToMessageId === undefined ? {} : { upToMessageId }),
       },
     );
+  }
+
+  /**
+   * Remove a conversation from THIS visitor's list. Not a delete: the
+   * workspace keeps the record, and a newer message brings the thread back.
+   */
+  public async dismiss(conversationId: string): Promise<void> {
+    await this.post<unknown>(
+      `/v1/widget/conversations/${encodeURIComponent(conversationId)}/dismiss`,
+      {
+        publicId: this.publicId,
+        visitorToken: (await this.getToken()) ?? '',
+      },
+    );
+  }
+
+  /**
+   * The audience profile this visitor matches now, resolved by the server
+   * (`POST /v1/widget/profile/resolve`): starter prompts, quick links, copy.
+   * `locale` defaults to the one `init` reported.
+   */
+  public async resolveProfile(locale?: string): Promise<ProfileView> {
+    return this.post<ProfileView>('/v1/widget/profile/resolve', {
+      publicId: this.publicId,
+      visitorToken: (await this.getToken()) ?? '',
+      locale: locale ?? this.configLocale ?? deviceLocale(),
+    });
   }
 
   /** A `step` card action: ask for the first step of a flow and post it. */

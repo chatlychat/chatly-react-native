@@ -22,6 +22,13 @@ export interface ComposerProps {
    */
   onSent?: (conversationId: string) => void;
   placeholder?: string;
+  /**
+   * Controlled text. Pass `value` with `onChangeText` to own the draft (speech
+   * recognition, a tapped starter); the composer still clears it after a send
+   * by calling `onChangeText('')`. Omit both and it keeps its own.
+   */
+  value?: string;
+  onChangeText?: (text: string) => void;
 }
 
 /**
@@ -50,9 +57,16 @@ export function Composer({
   conversationId,
   onSent,
   placeholder = 'Type a message…',
+  value: controlled,
+  onChangeText,
 }: ComposerProps): React.JSX.Element {
   const { rest, theme } = useChatly();
-  const [value, setValue] = useState('');
+  const [own, setOwn] = useState('');
+  const value = controlled ?? own;
+  const setValue = (text: string): void => {
+    setOwn(text);
+    onChangeText?.(text);
+  };
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [staged, setStaged] = useState<Attachment[]>([]);

@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, type ListRenderItemInfo, StyleSheet, View } from 'react-native';
+import { FlatList, type ListRenderItemInfo, StyleSheet, Text, View } from 'react-native';
 
 import { MessageBubble } from './MessageBubble';
 import { useChatly } from '../useChatly';
+import { useTyping } from '../useTyping';
 
 import type {
   Attachment,
@@ -23,6 +24,7 @@ export function MessagesList({
 }: MessagesListProps): React.JSX.Element {
   const { rest, realtime, theme, setActiveConversation } = useChatly();
   const [messages, setMessages] = useState<MessageRow[]>([]);
+  const typing = useTyping(conversationId);
   const listRef = useRef<FlatList<MessageRow>>(null);
 
   /**
@@ -135,6 +137,21 @@ export function MessagesList({
         renderItem={renderItem}
         contentContainerStyle={{ padding: theme.spacing.md }}
       />
+      {typing !== null && (
+        <Text
+          accessibilityLiveRegion="polite"
+          style={{
+            color: theme.colors.mutedForeground,
+            fontSize: theme.typography.sizeSmall,
+            paddingHorizontal: theme.spacing.md,
+            paddingBottom: theme.spacing.sm,
+          }}
+        >
+          {/* The label is author text: a Text child, never markup. */}
+          {typing.label ??
+            (typing.displayName === null ? 'Typing…' : `${typing.displayName} is typing…`)}
+        </Text>
+      )}
     </View>
   );
 }

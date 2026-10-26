@@ -282,3 +282,27 @@ export interface PushTokenRegistration {
   /** Client app version (e.g. '1.4.2'); included in the registration record. */
   appVersion?: string;
 }
+
+/**
+ * `POST /v1/widget/profile/resolve`: what the visitor's audience profile
+ * resolves to. Same shape as `ProfileView` in `packages/core`.
+ */
+export interface ProfileView {
+  /** The matched profile's name; null when none matched or the match is unnamed. */
+  profile: string | null;
+  matched: boolean;
+  starterPrompts: string[];
+  /** Loose, like blocks: `label` plus `href` or `startConversation`, `description?`, `icon?`. */
+  quickLinks: Array<Record<string, unknown> & { label: string }>;
+  /** Every copy key, defaults filled in. */
+  copy: Record<string, string>;
+}
+
+/** Who is typing (an agent or a bot) and, for a bot, what it is doing. */
+export interface TypingState {
+  actorType: 'agent' | 'bot';
+  actorId: string;
+  displayName: string | null;
+  /** The bot's own words ("Looking at your photo…"); null for plain typing. */
+  label: string | null;
+}
