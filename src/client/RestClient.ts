@@ -8,6 +8,7 @@
 
 import { Platform } from 'react-native';
 
+import { deviceLocale, deviceTimezone } from './device-locale.js';
 import { IdentityStore, TokenStore } from '../storage/TokenStore';
 
 import type {
@@ -106,9 +107,14 @@ export class RestClient {
   private tokenCache: string | null = null;
   /** `undefined` = not yet read from disk; `null` = read, nothing stored. */
   private identityCache: ChatlyIdentity | null | undefined = undefined;
+  /** App-supplied overrides; `undefined` means "use the device's own". */
+  private readonly configLocale: string | undefined;
+  private readonly configTimezone: string | undefined;
 
   public constructor(config: ChatlyConfig) {
     this.publicId = config.publicId;
+    this.configLocale = config.locale;
+    this.configTimezone = config.timezone;
     const host = config.apiHost ?? DEFAULT_API_HOST;
     const scheme = config.secure === false ? 'http' : 'https';
     this.apiUrl = `${scheme}://${host}`;
@@ -170,8 +176,8 @@ export class RestClient {
     const body: Record<string, unknown> = {
       publicId: this.publicId,
       visitorToken: token ?? undefined,
-      locale: 'en-US',
-      timezone: 'UTC',
+      locale: this.configLocale ?? deviceLocale(),
+      timezone: this.configTimezone ?? deviceTimezone(),
       page: { url: `app://${Platform.OS}`, title: 'native' },
     };
     if (identity !== undefined) {
@@ -269,6 +275,35 @@ export class RestClient {
         status: input.status,
         ...(input.text === undefined ? {} : { text: input.text }),
         ...(input.data === undefined ? {} : { data: input.data }),
+      },
+    );
+  }
+
+  /**
+   * `POST /v1/widget/conversations/{id}/read` — persist how far the visitor
+   * has read.
+   *
+   * The DURABLE half of a read receipt, and none of the four mobile SDKs had
+   * it: only the web widget ever called this route. `ChatlyWidget` and
+   * `ChatlyProvider` both render the unread badge from the server's own
+   * `unreadContactCount`, so without this the count could only go UP — it
+   * survived app restarts, and the agent inbox never learned a native
+   * visitor had seen the thread.
+   *
+   * Distinct from the realtime "Read ✓" tick, which is advisory and goes
+   * with the socket. This is the row.
+   *
+   * `upToMessageId` is optional server-side: omitting it means "read as of
+   * now", which is what an app that does not track per-message visibility
+   * should send.
+   */
+  public async markRead(conversationId: string, upToMessageId?: string): Promise<void> {
+    await this.post<unknown>(
+      `/v1/widget/conversations/${encodeURIComponent(conversationId)}/read`,
+      {
+        publicId: this.publicId,
+        visitorToken: (await this.getToken()) ?? '',
+        ...(upToMessageId === undefined ? {} : { upToMessageId }),
       },
     );
   }

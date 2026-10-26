@@ -65,6 +65,17 @@ function domProps(props: AnyProps): Record<string, unknown> {
   if (props['accessibilityRole'] === 'button' || props['accessibilityRole'] === 'link') {
     out['role'] = props['accessibilityRole'];
   }
+  /*
+   * `accessibilityState.selected` → `aria-pressed`, because the only thing
+   * using it is a toggle button (the card reaction pair) and `aria-pressed`
+   * is what the web widget's equivalent sets. Mapped so a test can assert the
+   * toggle's STATE rather than only that a press was dispatched — without it,
+   * a component that fired the postback and never updated itself would pass.
+   */
+  const state = props['accessibilityState'];
+  if (typeof state === 'object' && state !== null && 'selected' in state) {
+    out['aria-pressed'] = (state as { selected?: boolean }).selected === true;
+  }
   if (props['disabled'] === true) {
     out['disabled'] = true;
     out['aria-disabled'] = true;

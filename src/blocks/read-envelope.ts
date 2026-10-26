@@ -57,15 +57,44 @@ export function isSafeMediaSrc(src: string): boolean {
   return parsed.protocol === 'https:';
 }
 
+/**
+ * A url action's href: `https:`, `mailto:` or `tel:` — exactly the shared
+ * schema's set (`isSafeActionHref` in @livechat/shared), nothing wider.
+ *
+ * `Linking.openURL` launches any scheme the OS has a handler for, so the rule
+ * is an ALLOW-LIST of three, not a deny-list: `intent:`, `sms:`, `itms-apps:`
+ * and an app's own scheme are all refused. The three admitted open the
+ * system browser, a draft e-mail and the dialer with the number filled in;
+ * none acts without the visitor confirming (iOS asks before `tel:`, Android
+ * opens the dialer and never places the call).
+ */
+export function isSafeActionHref(href: string): boolean {
+  if (href.length === 0 || href.length > 2000) {
+    return false;
+  }
+  // eslint-disable-next-line no-control-regex -- matching control characters IS the check
+  if (/[\u0000-\u001F\u007F]/.test(href) || href !== href.trim()) {
+    return false;
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(href);
+  } catch {
+    return false;
+  }
+  return (
+    parsed.protocol === 'https:' || parsed.protocol === 'mailto:' || parsed.protocol === 'tel:'
+  );
+}
+
 function readAction(raw: unknown): WidgetAction | null {
   if (!isBag(raw) || !str(raw['label'])) {
     return null;
   }
   switch (raw['kind']) {
     case 'url':
-      // An `href` is opened with `Linking.openURL`, which will launch any
-      // scheme the OS has a handler for — so the same https-only rule.
-      return str(raw['href']) && isSafeMediaSrc(raw['href'])
+      // Opened with `Linking.openURL`: the schema's three schemes only.
+      return str(raw['href']) && isSafeActionHref(raw['href'])
         ? (raw as unknown as WidgetAction)
         : null;
     case 'postback':
@@ -76,6 +105,8 @@ function readAction(raw: unknown): WidgetAction | null {
       return str(raw['canvasId']) ? (raw as unknown as WidgetAction) : null;
     case 'copy':
       return str(raw['text']) ? (raw as unknown as WidgetAction) : null;
+    case 'navigate':
+      return str(raw['path']) ? (raw as unknown as WidgetAction) : null;
     default:
       return null;
   }
@@ -99,6 +130,95 @@ const STOCK_STATES = new Set(['in_stock', 'low', 'out_of_stock']);
 
 /** The three `order_status` step states. An unrecognised one is coerced, not dropped. */
 const STEP_STATES = new Set(['done', 'current', 'pending']);
+
+/**
+ * Badges, collapsed to ONE shape: always an array of `{ text, tone }`.
+ *
+ * `card.badge` accepts three spellings — a bare string (every stored row and
+ * every integrator today), an object with a `tone`, or an array of up to two
+ * of either. A renderer that branched on all three would be three branches,
+ * two of which nobody exercises; worse, four renderers across this repo would
+ * each have their own three. So the reader collapses it and `types.ts`
+ * declares only the collapsed form.
+ *
+ * A bare string becomes `tone: 'neutral'`. `tone` is COERCED and never
+ * dropped — the `order_status[].state` rule: it reaches a style, so it cannot
+ * pass through unrecognised, and dropping the badge over an unknown tone
+ * would delete the words "Final sale" to protect the colour of a pill. It is
+ * always PRESENT for the mirror-image reason: an absent tone leaves each
+ * renderer picking its own default.
+ *
+ * Mirrors `readCardBadges` in the shared reader, which is exported there
+ * because `plain-text.ts` collapses badges the same way for `messages.body`.
+ */
+function readCardBadges(raw: unknown): Bag[] {
+  const out: Bag[] = [];
+  for (const entry of Array.isArray(raw) ? raw : [raw]) {
+    const badge: Bag = str(entry) ? { text: entry } : isBag(entry) ? { ...entry } : {};
+    if (!str(badge['text'])) {
+      continue;
+    }
+    const tone = badge['tone'];
+    if (tone !== 'success' && tone !== 'warning' && tone !== 'danger') {
+      badge['tone'] = 'neutral';
+    }
+    out.push(badge);
+  }
+  return out;
+}
+
+/**
+ * A comparison table: the things across, their attributes down.
+ *
+ * ── Why a bad COLUMN is coerced and a bad ROW is dropped ─────────────
+ *
+ * Not the same mistake. A row is identified by its own label, so a row
+ * without one is a line of values nobody can interpret and it goes, the way a
+ * half-formed variant goes. A COLUMN is identified by its POSITION: drop
+ * column 1 and every row's cells shift left, so "USD 120.00" is drawn under
+ * the wrong product — a wrong answer rather than a missing one. So an
+ * unreadable heading is coerced to an empty one and keeps its place.
+ *
+ * A table with no readable heading at all is dropped: the headings make it a
+ * comparison rather than a list. Cells are coerced to strings for the same
+ * positional reason, a LONGER row is truncated (the envelope refuses one
+ * outright, and a seventh cell under no heading is a column the reader
+ * invented), and a SHORT row is deliberately fine and renders blanks.
+ *
+ * `columns[].image` goes through the same https-only guard as `card.image`
+ * and drops the IMAGE rather than the column.
+ */
+function readTable(raw: Bag): Bag | null {
+  const columns: Bag[] = [];
+  for (const entry of Array.isArray(raw['columns']) ? raw['columns'] : []) {
+    const column: Bag = isBag(entry) ? { ...entry } : {};
+    if (!str(column['label'])) {
+      column['label'] = '';
+    }
+    if (
+      column['image'] !== undefined &&
+      !(str(column['image']) && isSafeMediaSrc(column['image']))
+    ) {
+      delete column['image'];
+    }
+    columns.push(column);
+  }
+  if (!columns.some((column) => column['label'] !== '')) {
+    return null;
+  }
+  const rows: Bag[] = [];
+  for (const entry of Array.isArray(raw['rows']) ? raw['rows'] : []) {
+    if (!isBag(entry) || !str(entry['label'])) {
+      continue;
+    }
+    const cells = (Array.isArray(entry['cells']) ? entry['cells'] : [])
+      .slice(0, columns.length)
+      .map((cell) => (typeof cell === 'string' ? cell : ''));
+    rows.push({ ...entry, cells });
+  }
+  // No readable row is no comparison: a heading row over a blank space.
+  return rows.length > 0 ? { ...raw, columns, rows } : null;
+}
 
 /**
  * Variants, keeping unknown keys and normalising the one a renderer branches on.
@@ -195,6 +315,33 @@ function readTimelineSteps(raw: unknown): Bag[] {
   return out;
 }
 
+const PLACEMENTS = new Set(['arc', 'shelf', 'wall', 'table']);
+const ANCHORS = new Set(['center', 'base', 'top', 'back']);
+const MODEL_FORMATS = new Set(['gltf', 'usdz']);
+
+/**
+ * `card.model`: dropped when its url is not `https:`-and-clean, otherwise kept
+ * with each malformed optional field removed. Mirrors `read-spatial.ts` in
+ * `@livechat/shared`; `read-envelope.spatial.parity.spec.ts` compares them.
+ */
+function readModel(raw: unknown): Bag | null {
+  if (!isBag(raw) || !str(raw['url']) || !isSafeMediaSrc(raw['url'])) {
+    return null;
+  }
+  const model: Bag = { ...raw };
+  const { scale, anchor, format } = model;
+  if (typeof scale !== 'number' || !(scale >= 0.01 && scale <= 100)) {
+    delete model['scale'];
+  }
+  if (!ANCHORS.has(anchor as string)) {
+    delete model['anchor'];
+  }
+  if (!MODEL_FORMATS.has(format as string)) {
+    delete model['format'];
+  }
+  return model;
+}
+
 function readCard(raw: unknown): Bag | null {
   if (!isBag(raw) || !str(raw['title'])) {
     return null;
@@ -213,6 +360,76 @@ function readCard(raw: unknown): Bag | null {
       delete card['price'];
     } else {
       card['price'] = price;
+    }
+  }
+  /*
+   * The badge, COLLAPSED rather than passed through — see `readCardBadges`.
+   * In the same position in this function as in the shared reader, because
+   * `read-envelope.parity.spec.ts` compares the two with `JSON.stringify` and
+   * a key written in a different order is a different string.
+   */
+  if (card['badge'] !== undefined) {
+    const badges = readCardBadges(card['badge']);
+    if (badges.length === 0) {
+      delete card['badge'];
+    } else {
+      card['badge'] = badges;
+    }
+  }
+  /*
+   * The reaction pair, narrowed to the two members and DEDUPED.
+   *
+   * `['like','like']` is accepted by the write schema — an enum of two with
+   * `.max(2)` cannot say "distinct" — and draws two identical thumbs, or a
+   * duplicate key in a list. An unrecognised member is DROPPED rather than
+   * coerced: it reaches a glyph and the payload of a postback a bot switches
+   * on, and there is no label inside it worth keeping.
+   */
+  if (card['reactions'] !== undefined) {
+    const reactions = Array.isArray(card['reactions'])
+      ? card['reactions'].filter(
+          (r, i, all) => (r === 'like' || r === 'dislike') && all.indexOf(r) === i,
+        )
+      : [];
+    if (reactions.length === 0) {
+      delete card['reactions'];
+    } else {
+      card['reactions'] = reactions;
+    }
+  }
+  /*
+   * `reaction` is only meaningful if the card OFFERS it. Read AFTER the
+   * filter above, so a chosen value naming a member that filter just dropped
+   * goes with it. Byte-identical rule to the server reader, and the parity
+   * spec is what holds the two together.
+   */
+  /*
+   * `action` — the card's tap target. Narrowed to the three kinds the schema
+   * allows, and DROPPED otherwise: a stored card predating the field could
+   * carry anything, and this value wraps the whole image. Byte-identical rule
+   * to the server reader; the parity spec holds the two together.
+   */
+  if (card['action'] !== undefined) {
+    const a = card['action'];
+    const usable =
+      isBag(a) &&
+      str(a['label']) &&
+      ((a['kind'] === 'url' && str(a['href'])) ||
+        (a['kind'] === 'host_event' && str(a['event'])) ||
+        (a['kind'] === 'step' && str(a['canvasId'])));
+    if (!usable) {
+      delete card['action'];
+    }
+  }
+  if (card['reaction'] !== undefined) {
+    const offered = card['reactions'];
+    const chosen = card['reaction'];
+    const usable =
+      Array.isArray(offered) &&
+      (chosen === 'like' || chosen === 'dislike') &&
+      offered.includes(chosen);
+    if (!usable) {
+      delete card['reaction'];
     }
   }
   /*
@@ -237,6 +454,14 @@ function readCard(raw: unknown): Bag | null {
   // rather than passed through — the `layout` rule.
   if (card['stock'] !== undefined && !(str(card['stock']) && STOCK_STATES.has(card['stock']))) {
     delete card['stock'];
+  }
+  if (card['model'] !== undefined) {
+    const model = readModel(card['model']);
+    if (model === null) {
+      delete card['model'];
+    } else {
+      card['model'] = model;
+    }
   }
   return card;
 }
@@ -273,7 +498,7 @@ function readBlock(raw: unknown): WidgetBlock | null {
         return null;
       }
       const grid: Bag = { ...raw, cards };
-      if (grid['layout'] !== 'grid' && grid['layout'] !== 'carousel') {
+      if (grid['layout'] !== 'grid' && grid['layout'] !== 'carousel' && grid['layout'] !== 'auto') {
         delete grid['layout'];
       }
       // As with `variants` above: only touched when present, so a grid
@@ -286,6 +511,9 @@ function readBlock(raw: unknown): WidgetBlock | null {
         } else {
           grid['more'] = more;
         }
+      }
+      if (grid['placement'] !== undefined && !PLACEMENTS.has(grid['placement'] as string)) {
+        delete grid['placement'];
       }
       return grid as unknown as WidgetBlock;
     }
@@ -302,6 +530,22 @@ function readBlock(raw: unknown): WidgetBlock | null {
       // No readable step is no timeline: a bordered blank space where the
       // answer to "where is my order" belongs. Same rule as `quick_replies`.
       return steps.length > 0 ? ({ ...raw, steps } as unknown as WidgetBlock) : null;
+    }
+    case 'table': {
+      const table = readTable(raw);
+      return table === null ? null : (table as unknown as WidgetBlock);
+    }
+    case 'place': {
+      if (!str(raw['label'])) {
+        return null;
+      }
+      const place: Bag = { ...raw };
+      for (const key of ['detail', 'ref']) {
+        if (place[key] !== undefined && !str(place[key])) {
+          delete place[key];
+        }
+      }
+      return place as unknown as WidgetBlock;
     }
     case 'status':
       // `id` is required: a status block exists to be patched.

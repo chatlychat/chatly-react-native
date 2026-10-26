@@ -27,32 +27,43 @@
  * There it is "progress, not content" for somebody reading history. Here the
  * shopper is watching it happen — "Looking through the shop…" patched to
  * "Found 6" is the feedback that stops them tapping again.
+ *
+ * ── Three rulings a later reader will want to "fix" ─────────────────────
+ *
+ *  1. EVERY card action renders, all thirteen, with no overflow menu.
+ *     `MAX_CARD_ACTIONS_VISIBLE` is five because five buttons are what a 380px
+ *     WEB panel fits before they start a third row and push the composer off
+ *     screen; here they wrap in a `flexWrap` row inside a scrolling list with
+ *     no composer pinned under the card. A popover would also be a whole new
+ *     interaction surface in a published package — modal, backdrop, focus,
+ *     a second accessible name — built to hide buttons that already fit.
+ *  2. The reaction pair is drawn and is NOT pressable: the one deliberately
+ *     unfinished thing here. `Reactions` below argues it.
+ *  3. A `table` lives in `BlockTable.tsx`, because this file is at the
+ *     650-line ceiling. Its header argues the seam; the `case` stays here.
  */
 import React from 'react';
 import { Image, Linking, Pressable, ScrollView, Text, View } from 'react-native';
 
-import { formatMoney } from '../blocks/money';
+import { ActionButton, Card } from './BlockCard';
+import { BlockTable } from './BlockTable';
+import { isSafeNavigatePath, navigateTarget } from '../blocks/navigate';
 import { readBlocksEnvelope } from '../blocks/read-envelope';
 import { useChatly } from '../useChatly';
 
-import type { Money } from '../blocks/money';
-import type { WidgetAction, WidgetBlock, WidgetCard } from '../blocks/types';
+import type { WidgetAction, WidgetBlock } from '../blocks/types';
 
 /**
- * Availability and the timeline states, in words.
+ * The timeline states, in words.
  *
  * The stored plain-text projection keeps the author's enum member verbatim
  * because it is generated on the server and read back by a model; a surface
  * rendering for a person writes its own label. English literals because this
  * package has no translation layer — a consumer who needs another language
  * renders the envelope themselves, which `readBlocksEnvelope` is exported for.
+ * `STOCK_LABEL`, which was beside this, moved to `BlockCard.tsx` with its only
+ * reader.
  */
-const STOCK_LABEL = {
-  in_stock: 'In stock',
-  low: 'Low stock',
-  out_of_stock: 'Out of stock',
-} as const;
-
 const STEP_LABEL = { done: 'Done', current: 'In progress', pending: 'Pending' } as const;
 
 /**
@@ -106,143 +117,6 @@ export interface MessageBlocksProps {
  * both and in a screen reader, which the visual version does not — the same
  * call `apps/mobile-agent` made.
  */
-function Price({ value }: { readonly value?: Money }): React.JSX.Element | null {
-  const { theme } = useChatly();
-  if (value === undefined) {
-    return null;
-  }
-  const was =
-    value.compareAt !== undefined && value.compareAt > value.amount
-      ? formatMoney({ amount: value.compareAt, currency: value.currency })
-      : null;
-  const now = formatMoney(value);
-  return (
-    <Text style={{ color: theme.colors.foreground, fontSize: theme.typography.sizeBody }}>
-      {was === null ? now : `${now} (was ${was})`}
-    </Text>
-  );
-}
-
-function ActionButton(props: {
-  readonly action: WidgetAction;
-  readonly onRun: (action: WidgetAction) => void;
-}): React.JSX.Element {
-  const { theme } = useChatly();
-  const { action, onRun } = props;
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={action.label}
-      onPress={() => onRun(action)}
-      style={{
-        borderRadius: theme.radius.md,
-        paddingHorizontal: theme.spacing.md,
-        paddingVertical: theme.spacing.sm,
-        backgroundColor: action.style === 'primary' ? theme.colors.primary : theme.colors.surface,
-        borderColor: theme.colors.border,
-        borderWidth: action.style === 'primary' ? 0 : 1,
-      }}
-    >
-      <Text
-        style={{
-          color: action.style === 'primary' ? theme.colors.onPrimary : theme.colors.foreground,
-          fontSize: theme.typography.sizeBody,
-        }}
-      >
-        {action.label}
-      </Text>
-    </Pressable>
-  );
-}
-
-function Card(props: {
-  readonly card: WidgetCard;
-  readonly onRun: (action: WidgetAction) => void;
-  readonly width?: number;
-}): React.JSX.Element {
-  const { theme } = useChatly();
-  const { card, width } = props;
-  return (
-    <View
-      style={{
-        borderWidth: 1,
-        borderColor: theme.colors.border,
-        borderRadius: theme.radius.bubble,
-        backgroundColor: theme.colors.surface,
-        padding: theme.spacing.sm,
-        gap: 4,
-        ...(width === undefined ? {} : { width }),
-      }}
-    >
-      {card.image !== undefined && (
-        <Image
-          source={{ uri: card.image }}
-          accessibilityLabel={card.title}
-          accessibilityIgnoresInvertColors
-          style={{ width: '100%', height: 140, borderRadius: theme.radius.md }}
-        />
-      )}
-      {card.badge !== undefined && (
-        <Text style={{ color: theme.colors.mutedForeground, fontSize: theme.typography.sizeSmall }}>
-          {card.badge}
-        </Text>
-      )}
-      <Text style={{ color: theme.colors.foreground, fontSize: theme.typography.sizeBody }}>
-        {card.title}
-      </Text>
-      {card.subtitle !== undefined && (
-        <Text style={{ color: theme.colors.mutedForeground, fontSize: theme.typography.sizeSmall }}>
-          {card.subtitle}
-        </Text>
-      )}
-      {card.stock !== undefined && (
-        <Text style={{ color: theme.colors.mutedForeground, fontSize: theme.typography.sizeSmall }}>
-          {STOCK_LABEL[card.stock]}
-        </Text>
-      )}
-      <Price value={card.price} />
-      {(card.fields ?? []).map((f, i) => (
-        <Text
-          key={`${f.label}-${String(i)}`}
-          style={{ color: theme.colors.mutedForeground, fontSize: theme.typography.sizeSmall }}
-        >
-          {`${f.label}: ${f.value}`}
-        </Text>
-      ))}
-      {/*
-        The options the shopper was offered, as a READOUT and not a picker.
-
-        Deliberate, and not a budget decision: nothing in the protocol carries
-        a chosen variant. A variant's `value` is "what a program receives",
-        but no action references it — a card's own `actions` carry their own
-        `value`, and there is no field on a postback for the option that was
-        selected. A tappable option would therefore have to invent a wire
-        contract here, in a published package, ahead of the widget that owns
-        the picking UX. Shown instead, so the shopper can read the run of
-        sizes and ask; `inStock === false` is marked and an ABSENT `inStock`
-        is not, because the author not saying is not the same as sold out.
-      */}
-      {card.variants !== undefined && card.variants.length > 0 && (
-        <Text
-          accessibilityLabel="Options"
-          style={{ color: theme.colors.mutedForeground, fontSize: theme.typography.sizeSmall }}
-        >
-          {`Options: ${card.variants
-            .map((v) => (v.inStock === false ? `${v.label} (unavailable)` : v.label))
-            .join(', ')}`}
-        </Text>
-      )}
-      {(card.actions ?? []).length > 0 && (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
-          {(card.actions ?? []).map((a, i) => (
-            <ActionButton key={`${a.label}-${String(i)}`} action={a} onRun={props.onRun} />
-          ))}
-        </View>
-      )}
-    </View>
-  );
-}
-
 function Block(props: {
   readonly block: WidgetBlock;
   readonly onRun: (action: WidgetAction) => void;
@@ -399,6 +273,25 @@ function Block(props: {
           ))}
         </View>
       );
+    case 'table':
+      // In `BlockTable.tsx` — ruling 3 in the header says why, and the `case`
+      // stays here so `check-block-renderer-parity.mjs` sees the literal.
+      return <BlockTable block={block} />;
+    case 'place': {
+      /*
+       * A destination in words. There is no world in a phone app, so the label
+       * IS the block (see `spatial-schema.ts` in `@livechat/shared`), and there
+       * is no button for the same reason: a world host owns "take me there".
+       * The `Place:` prefix is in the accessible name so a screen reader says
+       * what kind of line it is.
+       */
+      const line = block.detail === undefined ? block.label : `${block.label} — ${block.detail}`;
+      return (
+        <Text accessibilityRole="text" accessibilityLabel={`Place: ${line}`} style={body}>
+          {line}
+        </Text>
+      );
+    }
     case 'status':
       return (
         <Text accessibilityRole="text" style={muted}>
@@ -422,7 +315,7 @@ function Block(props: {
 }
 
 export function MessageBlocks(props: MessageBlocksProps): React.JSX.Element | null {
-  const { rest, onAction } = useChatly();
+  const { rest, config, onAction, onOpenUrl, onNavigate } = useChatly();
   const envelope = readBlocksEnvelope(props.blocks);
   if (envelope === null) {
     return null;
@@ -449,8 +342,42 @@ export function MessageBlocks(props: MessageBlocksProps): React.JSX.Element | nu
         });
         return;
       case 'url':
+        /*
+         * The app gets first refusal. `onOpenUrl` returning true means it
+         * routed this itself — a listing, a cart, a watchlist screen the app
+         * already has — and leaving to the browser would lose the buyer's
+         * place for a destination the app owns.
+         *
+         * Anything else falls through to `Linking.openURL`, so an integration
+         * with no hook behaves exactly as before and an href the app does not
+         * recognise still reaches the browser rather than being swallowed.
+         */
+        if (onOpenUrl?.(action.href) === true) {
+          return;
+        }
         void Linking.openURL(action.href);
         return;
+      case 'navigate': {
+        /*
+         * Re-checked at the sink, like the web widget: the app's router gets
+         * this string, and `//evil.example` handed to a router leaves the app.
+         */
+        if (!isSafeNavigatePath(action.path)) {
+          return;
+        }
+        const handled = onNavigate?.({
+          path: action.path,
+          label: action.label,
+          conversationId,
+          messageId: props.messageId,
+          actionId: action.id ?? action.path,
+        });
+        const target = navigateTarget(config.siteOrigin, action.path);
+        if (handled !== true && target !== null) {
+          void Linking.openURL(target);
+        }
+        return;
+      }
       case 'postback':
         if (conversationId !== null) {
           void rest.postback(conversationId, {

@@ -1,5 +1,19 @@
 # @chatlychat/react-native
 
+## 0.8.0 — 2026-10-26
+
+- **`navigate` card actions.** A card button can now carry a PATH on your site (`/pricing`). `<ChatlyProvider onNavigate={(e) => …}>` receives `{ path, label, conversationId, messageId, actionId }` and returns `true` when your router handled it; otherwise, if `config.siteOrigin` is set to your `https:` origin, the SDK opens `siteOrigin + path` in the system browser, and with neither it does nothing rather than guess a host. The path is checked again before either runs.
+- **`onNotice`.** `<ChatlyProvider onNotice={(n) => …}>` receives the ephemeral one-line toast a bot sends to answer a silent postback (`{ conversationId, replyTo, body }`). It is not a message: it is never in the thread and only arrives over the live socket.
+- New `ChatlyConfig.siteOrigin`; new types `ChatlyNavigateEvent` and `ChatlyNotice`.
+
+## 0.7.2 — 2026-10-26
+
+The web theme's `anchor` is classified as not applicable on a phone (it positions the web panel above an element on the host page), so it no longer reads as a setting nobody decided about.
+
+## 0.7.1 — 2026-10-26
+
+`mailto:` and `tel:` url actions now render and open, as on the web widget. The reader is an allow-list of exactly the schema's three schemes (`https`, `mailto`, `tel`), so no other scheme — `intent:`, `sms:`, an app's own — ever reaches `Linking.openURL`.
+
 ## 0.3.0 — 2026-10-16
 
 Released because the code below was in the repository and not on npm. A gate

@@ -16,6 +16,35 @@ export interface ChatlyConfig {
   realtimeHost?: string;
   /** When false, the SDK uses `http://`/`ws://` instead of TLS. Defaults to true. */
   secure?: boolean;
+  /**
+   * BCP-47 locale for this visitor, e.g. `de-DE`.
+   *
+   * Omit it and the SDK reads the device's own via `Intl`, which is the right
+   * answer for almost every app. Set it when the app has its OWN language
+   * picker — a user who chose English inside a German phone's settings should
+   * reach an English-speaking agent.
+   *
+   * It used to be neither: `init` sent the literal `'en-US'` with no way to
+   * override, so every React Native visitor's contact record, help-centre
+   * language negotiation and workflow locale condition said US English.
+   */
+  locale?: string;
+  /**
+   * IANA timezone for this visitor, e.g. `Europe/Berlin`. Omit it and the SDK
+   * reads the device's own. Previously hardcoded `'UTC'`, which made every
+   * native visitor's agent-visible local time wrong.
+   */
+  timezone?: string;
+  /**
+   * The origin of YOUR site (`https://shop.example`), for `navigate` actions.
+   *
+   * A `navigate` card button carries a path (`/pricing`). With an `onNavigate`
+   * hook your app routes it itself; with none, and this set, the SDK opens
+   * `siteOrigin + path` in the system browser. Unset and unhooked, a
+   * `navigate` press does nothing rather than guess a host. Must be an
+   * `https:` origin; anything else is ignored.
+   */
+  siteOrigin?: string;
 }
 
 export interface ChatlyIdentity {
@@ -46,7 +75,21 @@ export interface StartResponse {
   message: { id: string; body: string; createdAt: string };
 }
 
-export type ConversationStatus = 'open' | 'snoozed' | 'closed' | 'pending';
+/**
+ * Five states, and `merged` is the one that was missing.
+ *
+ * `POST /v1/widget/conversations/list` returns the full
+ * `conversationStatusSchema` (`packages/shared/src/schemas/conversation.ts`)
+ * — it applies no status filter — and an agent merging two of a contact's
+ * threads sets the loser's status to `merged`
+ * (`conversations-merge.service.ts`). That is an ordinary thing to do to a
+ * visitor who opened the chat twice, so the row reaches this client.
+ *
+ * It was a four-value union, which made the state unrepresentable: a
+ * consumer's `switch` had no arm for it and `exhaustive: never` would have
+ * compiled. Held against the shared schema by `wire-vocabulary.parity.spec.ts`.
+ */
+export type ConversationStatus = 'open' | 'snoozed' | 'closed' | 'pending' | 'merged';
 
 export interface ConversationSummary {
   id: string;
@@ -59,7 +102,29 @@ export interface ConversationSummary {
 }
 
 export type MessageAuthor = 'contact' | 'agent' | 'bot' | 'system';
-export type MessageKind = 'text' | 'image' | 'file' | 'attachment_only' | 'event' | 'internal_note';
+/**
+ * What shape a message body is — and this union was wrong in BOTH directions.
+ *
+ * It read `'text' | 'image' | 'file' | 'attachment_only' | 'event' |
+ * 'internal_note'`. The server's `message_kind` enum is
+ * `text | rich | note | system_event | attachment_only`
+ * (`@livechat/shared/message-kinds`), so four of those six were values
+ * nothing can ever send — `MessageBubble` branched on `kind === 'event'`,
+ * a comparison that was always false — while `rich` was absent.
+ *
+ * `rich` is the one that cost something. It is the kind every formatted reply
+ * and every bot card carries, so a host app branching on `kind` could not
+ * tell a product grid from a sentence. `sdk-swift`'s `Message.Kind` carries a
+ * comment about the identical gap, fixed there and not swept here.
+ *
+ * `note` is absent deliberately, and that is the one narrowing that is
+ * correct: an agent's internal comment never reaches a visitor. The gateway
+ * forwards `text`, `rich`, `attachment_only` and `system_event`
+ * (`VISITOR_VISIBLE_MESSAGE_KINDS`, `apps/realtime/src/visitor-allowlist.ts`) and the
+ * history route filters `note` and `system_event` out in SQL, so `system_event`
+ * is reachable on the socket and not on a reload.
+ */
+export type MessageKind = 'text' | 'rich' | 'attachment_only' | 'system_event';
 
 /**
  * One file or image attached to a message. Produced by `POST /v1/widget/uploads`
@@ -149,6 +214,8 @@ export type RealtimeEventType =
   | 'typing.stop'
   | 'visitor.identified'
   | 'visitor.page_view'
+  /** An ephemeral one-line toast answering this visitor's silent postback (ADR 0082). */
+  | 'message.notice'
   | 'trigger.fired'
   | 'ai.copilot.suggestion'
   | 'ai.agent.message';
@@ -162,6 +229,25 @@ export interface RealtimeEnvelope<P = unknown> {
   payload: P;
 }
 
+/**
+ * The `message.created` envelope, as the server actually sends it.
+ *
+ * This mirror is why a live card rendered as a bare bubble: it declared
+ * seven fields, the server sends those plus `kind`, `blocks`, `canvas`,
+ * `bodyHtml` and more, and `MessagesList` could only copy what the mirror
+ * admitted existed. The shared schema under-declared `blocks` and `canvas`
+ * too (fixed 2026-10-23), so reading either contract gave the same wrong
+ * answer.
+ *
+ * `kind` is OPTIONAL because the schema makes it so, and a row with no kind
+ * is a text row — the fallback belongs at the read, not here.
+ *
+ * `blocks` and `canvas` stay `unknown` deliberately, matching `MessageRow`:
+ * `readBlocksEnvelope` is the authority on a block's shape, a server newer
+ * than this app sends types it has never heard of, and a declared union here
+ * would be a second reading of the block contract that drifts from the
+ * first.
+ */
 export interface MessageCreatedPayload {
   id: string;
   conversationId: string;
@@ -170,6 +256,9 @@ export interface MessageCreatedPayload {
   body: string;
   attachments: unknown[];
   createdAt: string;
+  kind?: MessageKind;
+  blocks?: unknown;
+  canvas?: unknown;
 }
 
 export type PushPlatform = 'ios' | 'android' | 'expo';

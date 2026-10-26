@@ -1,7 +1,8 @@
 /**
  * <ChatlyProvider /> bootstraps the REST + realtime clients, restores the
- * persisted visitor token, fires `/v1/widget/init`, and exposes session state
- * to descendants via the `useChatly` hook.
+ * persisted visitor token, fires `/v1/widget/init`, resolves the theme from
+ * the workspace's own branding, and exposes session state to descendants via
+ * the `useChatly` hook.
  *
  * The provider is intentionally state-light: the heavy lifting (message lists,
  * composer state) lives in the components that use it. This keeps the public
@@ -13,7 +14,9 @@ import React, { createContext, useCallback, useEffect, useMemo, useRef, useState
 import { RealtimeClient } from './client/RealtimeClient';
 import { RestClient } from './client/RestClient';
 import { registerPushToken } from './push/registerPushToken';
-import { defaultTheme } from './theme/defaultTheme';
+import { resolveChatlyTheme } from './theme/resolveTheme';
+import { useDeviceColorScheme } from './theme/useDeviceColorScheme';
+import { resolveColorScheme } from './theme/widget-theme-map';
 
 import type {
   ChatlyConfig,
@@ -23,7 +26,7 @@ import type {
   PushTokenRegistration,
   SessionState,
 } from './client/types';
-import type { ChatlyTheme } from './theme/ChatlyTheme';
+import type { ChatlyColorScheme, ChatlyTheme, ChatlyThemeOverrides } from './theme/ChatlyTheme';
 
 export interface ChatlyContextValue {
   config: ChatlyConfig;
@@ -86,6 +89,67 @@ export interface ChatlyContextValue {
    * has work to do.
    */
   onAction?: ((event: ChatlyActionEvent) => void) | undefined;
+  /**
+   * Route a `url` action yourself instead of handing it to the OS.
+   *
+   * ── Why an app needs this ──────────────────────────────────────────────
+   *
+   * A `url` action calls `Linking.openURL`, which leaves the app — and for a
+   * link to the integrator's OWN content (a listing, a cart, a watchlist)
+   * that is the wrong outcome twice over: the buyer loses their place, and
+   * the destination is a screen the app already has. On the web the same
+   * problem is solved by `target: 'self'`, honoured when the href is on the
+   * embedding page's origin. A native app has no "embedding page", so the
+   * equivalent is a hook: you get the href and decide.
+   *
+   * Return `true` when you handled it. Return `false` or `undefined` — or do
+   * not supply the hook at all — and `Linking.openURL` runs as before, so
+   * every existing integration is unchanged and an unrecognised URL still
+   * reaches the browser rather than being swallowed.
+   *
+   * The href has already been through the same allow-list the web renderer
+   * applies: an `https`, `mailto` or `tel` URL with no control characters,
+   * and nothing else — no other scheme ever reaches `Linking.openURL`. It is still a value an author controls: match it against
+   * routes you own, and let anything else fall through.
+   */
+  onOpenUrl?: ((href: string) => boolean | undefined) | undefined;
+  /**
+   * Route a `navigate` card action inside your app (ADR 0082).
+   *
+   * The action carries a PATH on your site (`/pricing?plan=pro`) that has
+   * already been through the same guard the web widget applies: a single
+   * leading `/`, no host, `//`, backslash, control character or `..` segment.
+   * Hand it to your router. Return `true` when you handled it.
+   *
+   * Return `false` or `undefined` — or supply no hook — and the SDK opens
+   * `config.siteOrigin + path` in the system browser when `siteOrigin` is set,
+   * and does nothing otherwise (it will not guess a host).
+   */
+  onNavigate?: ((event: ChatlyNavigateEvent) => boolean | undefined) | undefined;
+  /**
+   * An ephemeral one-line toast answering one of this visitor's silent
+   * postbacks (ADR 0082). Not a message: it is never in the thread, and it
+   * only arrives over the live socket. Show it however your app shows toasts.
+   */
+  onNotice?: ((notice: ChatlyNotice) => void) | undefined;
+}
+
+/** One `navigate` tap. */
+export interface ChatlyNavigateEvent {
+  /** A validated site-relative path, e.g. `/pricing?plan=pro`. */
+  readonly path: string;
+  readonly label: string;
+  readonly conversationId: string | null;
+  readonly messageId: string;
+  readonly actionId: string;
+}
+
+/** An ephemeral notice, as `onNotice` receives it. */
+export interface ChatlyNotice {
+  readonly conversationId: string;
+  /** The id of the visitor message (the press) this answers. */
+  readonly replyTo: string;
+  readonly body: string;
 }
 
 /** One `host_event` tap, with everything needed to report the outcome. */
@@ -103,22 +167,46 @@ export const ChatlyContext = createContext<ChatlyContextValue | null>(null);
 
 export interface ChatlyProviderProps {
   config: ChatlyConfig;
-  theme?: Partial<ChatlyTheme>;
+  /**
+   * Explicit theme values for this screen. They beat the workspace's
+   * configured theme — the precedence and the reasoning are in
+   * `theme/resolveTheme.ts`.
+   *
+   * Widened from `Partial<ChatlyTheme>`, which required every member of a
+   * group once the group was named: see `ChatlyThemeOverrides`.
+   */
+  theme?: ChatlyThemeOverrides;
+  /**
+   * Force a palette instead of following the device.
+   *
+   * For an app with its own in-app light/dark switch that does not follow the
+   * OS. Unset, the device's `useColorScheme()` decides, unless the workspace
+   * pinned `colorScheme` to `light` or `dark` in the dashboard.
+   */
+  colorScheme?: ChatlyColorScheme;
   children: React.ReactNode;
   /** See `ChatlyContextValue.onAction`. */
   onAction?: (event: ChatlyActionEvent) => void;
+  /** See `ChatlyContextValue.onOpenUrl`. */
+  onOpenUrl?: (href: string) => boolean | undefined;
+  /** See `ChatlyContextValue.onNavigate`. */
+  onNavigate?: (event: ChatlyNavigateEvent) => boolean | undefined;
+  /** See `ChatlyContextValue.onNotice`. */
+  onNotice?: (notice: ChatlyNotice) => void;
 }
 
 export function ChatlyProvider({
   config,
   theme,
+  colorScheme,
   children,
   onAction,
+  onOpenUrl,
+  onNavigate,
+  onNotice,
 }: ChatlyProviderProps): React.JSX.Element {
   const rest = useMemo(() => new RestClient(config), [config]);
   const realtime = useMemo(() => new RealtimeClient(config), [config]);
-
-  const mergedTheme = useMemo<ChatlyTheme>(() => mergeTheme(defaultTheme, theme), [theme]);
 
   const [session, setSession] = useState<SessionState | null>(null);
   const [init, setInit] = useState<InitResponse | null>(null);
@@ -127,6 +215,36 @@ export function ChatlyProvider({
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [realtimeError, setRealtimeError] = useState<Error | null>(null);
   const mounted = useRef(true);
+
+  /**
+   * THE WORKSPACE'S OWN THEME, which this provider used to throw away.
+   *
+   * `init.branding` is the full theme the operator configured — workspace,
+   * then brand, then channel, exactly as `POST /v1/widget/init` layers them.
+   * It arrived on every boot, was typed `Record<string, unknown>`, and no
+   * component read it: the provider seeded from `defaultTheme` and an
+   * integrator prop, so a customer who themed their widget in the dashboard
+   * saw a Chatly blue in their native app.
+   *
+   * `theme/widget-theme-map.ts` is the translation and names every web field
+   * it cannot carry. `theme/resolveTheme.ts` is the precedence.
+   *
+   * It re-resolves when `init` arrives, which means the first paint of a cold
+   * start is the DEFAULT palette and the themed one lands a request later.
+   * That is the honest shape of the thing — the theme is remote config and
+   * there is nothing to show it before the response — and it is why the
+   * defaults are a deliberate neutral rather than a placeholder.
+   */
+  const deviceScheme = useDeviceColorScheme();
+  const branding = init?.branding;
+  const scheme = useMemo(
+    () => resolveColorScheme(branding, colorScheme, deviceScheme),
+    [branding, colorScheme, deviceScheme],
+  );
+  const mergedTheme = useMemo<ChatlyTheme>(
+    () => resolveChatlyTheme({ branding, overrides: theme, scheme }),
+    [branding, theme, scheme],
+  );
 
   const bootstrap = useCallback(
     async (identity?: ChatlyIdentity): Promise<void> => {
@@ -208,6 +326,35 @@ export function ChatlyProvider({
     setActiveConversationId(conversationId);
   }, []);
 
+  /*
+   * The ephemeral toast (ADR 0082). Held in a ref so a new `onNotice` closure
+   * does not re-subscribe, and filtered on the active conversation because the
+   * socket is scoped to ONE and a stray envelope must not toast in another.
+   */
+  const noticeRef = useRef(onNotice);
+  noticeRef.current = onNotice;
+  useEffect(() => {
+    return realtime.on<{ conversationId?: unknown; replyTo?: unknown; body?: unknown }>(
+      'message.notice',
+      (envelope) => {
+        const p = envelope.payload;
+        if (
+          typeof p.conversationId === 'string' &&
+          p.conversationId === activeConversationId &&
+          typeof p.replyTo === 'string' &&
+          typeof p.body === 'string' &&
+          p.body !== ''
+        ) {
+          noticeRef.current?.({
+            conversationId: p.conversationId,
+            replyTo: p.replyTo,
+            body: p.body,
+          });
+        }
+      },
+    );
+  }, [realtime, activeConversationId]);
+
   // Refresh conversation summaries on inbound message events.
   useEffect(() => {
     const off = realtime.on('message.created', () => {
@@ -285,6 +432,8 @@ export function ChatlyProvider({
       setPushToken,
       refresh,
       onAction,
+      onOpenUrl,
+      onNavigate,
     }),
     [
       config,
@@ -304,20 +453,10 @@ export function ChatlyProvider({
       setPushToken,
       refresh,
       onAction,
+      onOpenUrl,
+      onNavigate,
     ],
   );
 
   return <ChatlyContext.Provider value={value}>{children}</ChatlyContext.Provider>;
-}
-
-function mergeTheme(base: ChatlyTheme, override?: Partial<ChatlyTheme>): ChatlyTheme {
-  if (override === undefined) {
-    return base;
-  }
-  return {
-    colors: { ...base.colors, ...(override.colors ?? {}) },
-    radius: { ...base.radius, ...(override.radius ?? {}) },
-    spacing: { ...base.spacing, ...(override.spacing ?? {}) },
-    typography: { ...base.typography, ...(override.typography ?? {}) },
-  };
 }

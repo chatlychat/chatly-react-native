@@ -6,7 +6,13 @@
  */
 
 export { ChatlyProvider, ChatlyContext } from './ChatlyProvider';
-export type { ChatlyActionEvent, ChatlyProviderProps, ChatlyContextValue } from './ChatlyProvider';
+export type {
+  ChatlyActionEvent,
+  ChatlyNavigateEvent,
+  ChatlyNotice,
+  ChatlyProviderProps,
+  ChatlyContextValue,
+} from './ChatlyProvider';
 
 export { useChatly } from './useChatly';
 
@@ -68,8 +74,18 @@ export type { StoredIdentity } from './storage/TokenStore';
 
 export { registerPushToken } from './push/registerPushToken';
 
-export { defaultTheme } from './theme/defaultTheme';
-export type { ChatlyTheme } from './theme/ChatlyTheme';
+export { darkDefaultTheme, defaultTheme } from './theme/defaultTheme';
+export { resolveChatlyTheme } from './theme/resolveTheme';
+export { themeFromBranding } from './theme/widget-theme-map';
+/*
+ * `ChatlyThemeOverrides` is the type of the `theme` prop, and it was
+ * unreachable: a consumer could pass an override object (the prop is typed on
+ * `ChatlyProviderProps`) but could not NAME its type to build one in a
+ * variable or a function return. `Partial<ChatlyTheme>` was the obvious guess
+ * and it is wrong — it makes the four groups optional and their contents
+ * required, so `{ colors: { primary: '#f00' } }` does not typecheck.
+ */
+export type { ChatlyColorScheme, ChatlyTheme, ChatlyThemeOverrides } from './theme/ChatlyTheme';
 
 export type {
   Attachment,

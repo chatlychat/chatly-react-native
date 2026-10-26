@@ -20,6 +20,8 @@ import { defineConfig } from 'vitest/config';
  * A simulator is still the only thing that can prove the native layer. This
  * covers the React layer, which is where component bugs actually are.
  */
+const vitestExecution = { pool: 'threads' as const };
+
 export default defineConfig({
   resolve: {
     alias: {
@@ -27,6 +29,8 @@ export default defineConfig({
     },
   },
   test: {
+    // Worker THREADS, not forked processes. See @livechat/config/vitest.
+    ...vitestExecution,
     environment: 'jsdom',
     include: ['src/**/*.spec.ts', 'src/**/*.spec.tsx'],
     exclude: ['**/node_modules/**'],

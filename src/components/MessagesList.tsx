@@ -4,7 +4,12 @@ import { FlatList, type ListRenderItemInfo, StyleSheet, View } from 'react-nativ
 import { MessageBubble } from './MessageBubble';
 import { useChatly } from '../useChatly';
 
-import type { MessageCreatedPayload, MessageRow, RealtimeEnvelope } from '../client/types';
+import type {
+  Attachment,
+  MessageCreatedPayload,
+  MessageRow,
+  RealtimeEnvelope,
+} from '../client/types';
 
 export interface MessagesListProps {
   conversationId: string;
@@ -58,12 +63,40 @@ export function MessagesList({
         if (p.conversationId !== conversationId) {
           return;
         }
+        /*
+         * Every field the envelope carries, not the five this once copied.
+         *
+         * It hand-built `{ id, authorType, kind: 'text', body, createdAt }`,
+         * so a card, a canvas step or an attachment delivered LIVE rendered
+         * as a bare text bubble — and then came out correctly after a reload,
+         * because the REST page carries the same fields this drops. A bug
+         * that fixes itself on refresh is the hardest kind to be told about.
+         *
+         * `kind: 'text'` was the worst of it: a `rich` message announced
+         * itself as plain, so `MessageBubble` took the plain-text path for a
+         * body that is not the message. The envelope's own `kind` is the only
+         * authority on that.
+         *
+         * `blocks` and `canvas` were ALSO undeclared on
+         * `messageCreatedPayloadSchema` until 2026-10-23 while being
+         * published all along, so reading the contract to find out what
+         * arrives gave the wrong answer. They are declared now; this reads
+         * them.
+         *
+         * Left `unknown` and handed to `readBlocksEnvelope` at render time,
+         * exactly as `MessageRow` documents: a server newer than this app
+         * sends block types it has never heard of, and the row must render
+         * what CAN be drawn rather than fail a type check.
+         */
         const row: MessageRow = {
           id: p.id,
           authorType: p.authorType,
-          kind: 'text',
+          kind: p.kind ?? 'text',
           body: p.body,
           createdAt: p.createdAt,
+          ...(p.attachments === undefined ? {} : { attachments: p.attachments as Attachment[] }),
+          ...(p.blocks === undefined ? {} : { blocks: p.blocks }),
+          ...(p.canvas === undefined ? {} : { canvas: p.canvas }),
         };
         setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]));
       },

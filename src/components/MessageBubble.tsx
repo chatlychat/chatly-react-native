@@ -21,7 +21,7 @@ export interface MessageBubbleProps {
 export function MessageBubble({ message, conversationId }: MessageBubbleProps): React.JSX.Element {
   const { theme } = useChatly();
   const isContact = message.authorType === 'contact';
-  const isSystem = message.authorType === 'system' || message.kind === 'event';
+  const isSystem = message.authorType === 'system' || message.kind === 'system_event';
   const attachments = message.attachments ?? [];
 
   if (isSystem) {
