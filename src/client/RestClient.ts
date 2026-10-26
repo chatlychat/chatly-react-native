@@ -118,8 +118,8 @@ export class RestClient {
     const host = config.apiHost ?? DEFAULT_API_HOST;
     const scheme = config.secure === false ? 'http' : 'https';
     this.apiUrl = `${scheme}://${host}`;
-    this.tokenStore = new TokenStore(config.publicId);
-    this.identityStore = new IdentityStore(config.publicId);
+    this.tokenStore = new TokenStore(config.publicId, config.storage);
+    this.identityStore = new IdentityStore(config.publicId, config.storage);
   }
 
   public get baseUrl(): string {

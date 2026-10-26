@@ -31,7 +31,7 @@ export default defineConfig({
   test: {
     // Worker THREADS, not forked processes. See @livechat/config/vitest.
     ...vitestExecution,
-    environment: 'jsdom',
+    environment: 'happy-dom',
     include: ['src/**/*.spec.ts', 'src/**/*.spec.tsx'],
     exclude: ['**/node_modules/**'],
   },

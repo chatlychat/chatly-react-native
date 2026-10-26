@@ -328,29 +328,48 @@ export interface WidgetBlocksEnvelope {
 
 /* ── Canvas (Tier 2) ──────────────────────────────────────────────────── */
 
+/** `visibleWhen`: show this input only while `input` holds `equals`. */
+export interface CanvasVisibleWhen {
+  readonly input: string;
+  readonly equals: string | boolean;
+}
+
+/**
+ * One input, in the server's shape (`inputs[]`, keyed by `id`).
+ *
+ * Older builds of this SDK read `fields[]` keyed by `name` with a `checkbox`
+ * type; `readCanvas` still accepts that and returns it as this.
+ */
 export type CanvasField =
   | {
-      readonly type: 'text' | 'email' | 'tel' | 'number';
-      readonly name: string;
+      readonly type: 'text' | 'textarea' | 'email' | 'tel' | 'number';
+      readonly id: string;
       readonly label: string;
       readonly required?: boolean;
       readonly placeholder?: string;
       readonly value?: string;
+      readonly visibleWhen?: CanvasVisibleWhen;
     }
   | {
       readonly type: 'select';
-      readonly name: string;
+      readonly id: string;
       readonly label: string;
       readonly required?: boolean;
-      readonly options: ReadonlyArray<{ readonly label: string; readonly value: string }>;
+      /** `adds` is minor units in the step's currency; it raises the running total. */
+      readonly options: ReadonlyArray<{
+        readonly label: string;
+        readonly value: string;
+        readonly adds?: Money;
+      }>;
       readonly value?: string;
+      readonly visibleWhen?: CanvasVisibleWhen;
     }
   | {
-      readonly type: 'checkbox';
-      readonly name: string;
+      readonly type: 'toggle';
+      readonly id: string;
       readonly label: string;
-      readonly required?: boolean;
       readonly value?: boolean;
+      readonly visibleWhen?: CanvasVisibleWhen;
     };
 
 export interface CanvasAction {
@@ -358,6 +377,8 @@ export interface CanvasAction {
   readonly kind: 'submit' | 'cancel';
   readonly label: string;
   readonly style?: 'primary' | 'secondary' | 'danger';
+  /** Name the running total on a submit button: "Confirm & buy · $145.49". */
+  readonly showTotal?: boolean;
 }
 
 export interface WidgetCanvas {
@@ -365,7 +386,9 @@ export interface WidgetCanvas {
   readonly canvasId: string;
   readonly title?: string;
   readonly blocks?: readonly WidgetBlock[];
-  readonly fields?: readonly CanvasField[];
+  readonly inputs?: readonly CanvasField[];
+  /** The step's base price; the total adds the chosen options' `adds`. */
+  readonly price?: Money;
   readonly actions?: readonly CanvasAction[];
   readonly state?: string;
   /**

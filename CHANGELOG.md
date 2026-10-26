@@ -1,5 +1,12 @@
 # @chatlychat/react-native
 
+## 0.10.0 — 2026-10-26
+
+- **Bring your own storage.** `ChatlyConfig.storage` takes anything with `getItem` / `setItem` / `removeItem`, sync or async (AsyncStorage, expo-secure-store or MMKV behind a small wrapper). Omit it and nothing changes: the lazy AsyncStorage `require` is still the fallback. New type `ChatlyStorage`.
+- **The AsyncStorage peer is now `^1.17 || ^2` and optional**, so Expo SDK 51/52 (which pin 1.23.x) can install the SDK, and an app that injects `storage` need not install it at all.
+- **Canvas parity with the web widget.** Inputs `textarea` and `toggle`, `visibleWhen`, select options with `adds`, the step `price`, and `showTotal` on a submit button ("Confirm & buy · $145.49"). A hidden input is not drawn, not submitted and not summed; mixed currencies show no total. New exports `computeCanvasTotal` and `visibleInputIds`, pinned to the web widget's by a parity spec.
+- **Fixed: the canvas reader looked for `fields[]` keyed by `name`; the server stores `inputs[]` keyed by `id`.** `readCanvas` now reads `inputs`/`id`/`toggle` and still accepts the old `fields`/`name`/`checkbox` shape. Breaking for type consumers: `WidgetCanvas.fields` is now `inputs`, `CanvasField.name` is `id`, and the `checkbox` type is `toggle`.
+
 ## 0.9.0 — 2026-10-26
 
 - `navigate` is now also accepted as a card's image/title tap target and as a grid's `more` tile, with the same path guard and the same `onNavigate` / `siteOrigin` behaviour as a navigate button. `WidgetGridMore.action` widens to `postback | url | navigate`.

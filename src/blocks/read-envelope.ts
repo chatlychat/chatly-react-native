@@ -32,7 +32,7 @@
 import { readMoney } from './money';
 import { BLOCK_PROTOCOL_VERSION } from './types';
 
-import type { WidgetAction, WidgetBlock, WidgetBlocksEnvelope, WidgetCanvas } from './types';
+import type { WidgetAction, WidgetBlock, WidgetBlocksEnvelope } from './types';
 
 type Bag = Record<string, unknown>;
 
@@ -470,7 +470,7 @@ function readCard(raw: unknown): Bag | null {
   return card;
 }
 
-function readBlock(raw: unknown): WidgetBlock | null {
+export function readBlock(raw: unknown): WidgetBlock | null {
   if (!isBag(raw)) {
     return null;
   }
@@ -567,35 +567,4 @@ export function readBlocksEnvelope(raw: unknown): WidgetBlocksEnvelope | null {
   }
   const blocks = raw['blocks'].map(readBlock).filter((b): b is WidgetBlock => b !== null);
   return blocks.length > 0 ? { v: BLOCK_PROTOCOL_VERSION, blocks } : null;
-}
-
-/**
- * Read a stored canvas.
- *
- * Looser than the block reader on one point and stricter on another. Looser:
- * a canvas with no fields and no actions still renders, because a step can be
- * a read-only confirmation. Stricter: `canvasId` is required, because it is
- * what a submission is posted against — a canvas without one is a form with
- * nowhere to go, which is worse than no form.
- */
-export function readCanvas(raw: unknown): WidgetCanvas | null {
-  if (!isBag(raw) || raw['v'] !== BLOCK_PROTOCOL_VERSION || !str(raw['canvasId'])) {
-    return null;
-  }
-  const fields = Array.isArray(raw['fields'])
-    ? raw['fields'].filter((f) => isBag(f) && str(f['name']) && str(f['label']) && str(f['type']))
-    : [];
-  const actions = Array.isArray(raw['actions'])
-    ? raw['actions'].filter(
-        (a) =>
-          isBag(a) &&
-          str(a['id']) &&
-          str(a['label']) &&
-          (a['kind'] === 'submit' || a['kind'] === 'cancel'),
-      )
-    : [];
-  const blocks = Array.isArray(raw['blocks'])
-    ? raw['blocks'].map(readBlock).filter((b): b is WidgetBlock => b !== null)
-    : [];
-  return { ...(raw as object), fields, actions, blocks } as unknown as WidgetCanvas;
 }

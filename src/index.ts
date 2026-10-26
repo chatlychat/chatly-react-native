@@ -44,7 +44,9 @@ export type { MessageCanvasProps } from './components/MessageCanvas';
  * renderer cannot accidentally draw something the rest of the product would
  * reject.
  */
-export { readBlocksEnvelope, readCanvas, isSafeMediaSrc } from './blocks/read-envelope';
+export { readBlocksEnvelope, isSafeMediaSrc } from './blocks/read-envelope';
+export { readCanvas } from './blocks/read-canvas';
+export { computeCanvasTotal, visibleInputIds } from './blocks/canvas-total';
 export { formatMoney, moneyToPlainText, readMoney } from './blocks/money';
 export { BLOCK_PROTOCOL_VERSION } from './blocks/types';
 export type { Money } from './blocks/money';
@@ -70,7 +72,7 @@ export type {
 } from './client/RealtimeClient';
 
 export { IdentityStore, TokenStore } from './storage/TokenStore';
-export type { StoredIdentity } from './storage/TokenStore';
+export type { ChatlyStorage, StoredIdentity } from './storage/TokenStore';
 
 export { registerPushToken } from './push/registerPushToken';
 

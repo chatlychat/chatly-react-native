@@ -7,6 +7,8 @@
  * workspace-internal dependencies.
  */
 
+import type { ChatlyStorage } from '../storage/TokenStore';
+
 export interface ChatlyConfig {
   /** Public workspace identifier, e.g. `pub_abc123`. */
   publicId: string;
@@ -45,6 +47,15 @@ export interface ChatlyConfig {
    * `https:` origin; anything else is ignored.
    */
   siteOrigin?: string;
+  /**
+   * Where the visitor token and last identity are kept: anything with
+   * `getItem` / `setItem` / `removeItem`, sync or async — AsyncStorage (any
+   * version), or expo-secure-store / MMKV behind a three-line wrapper.
+   *
+   * Omit it and the SDK falls back to `@react-native-async-storage/async-storage`
+   * exactly as before. Pass it and that package need not be installed.
+   */
+  storage?: ChatlyStorage;
 }
 
 export interface ChatlyIdentity {

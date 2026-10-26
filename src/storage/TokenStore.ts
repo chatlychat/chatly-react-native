@@ -3,21 +3,31 @@
  * `localStorage` key convention so a hand-off between web and mobile sessions
  * could in principle reuse the same identifier shape: `chatly:vt:${publicId}`.
  *
- * Uses `@react-native-async-storage/async-storage` (peer dependency). We
- * intentionally require it lazily so the SDK does not crash at import time
- * if the host app forgot to install it — instead we throw a clear error
- * when the token store is first used.
+ * Uses the host's `storage` (`ChatlyConfig.storage`) when given; otherwise
+ * falls back to `@react-native-async-storage/async-storage` (optional peer),
+ * required lazily so the SDK does not crash at import time if it is absent —
+ * instead we throw a clear error when the token store is first used.
  */
 
-type AsyncStorageLike = {
-  getItem(key: string): Promise<string | null>;
-  setItem(key: string, value: string): Promise<void>;
-  removeItem(key: string): Promise<void>;
+/**
+ * The three methods the SDK uses. Same names as `KeyValueStorage` in
+ * `@chatlychat/core` (restated: the core is private), but each may also return
+ * a promise, so AsyncStorage 1.x/2.x fits as-is and a sync store (MMKV behind a
+ * three-line wrapper, expo-secure-store likewise) fits too.
+ */
+export type ChatlyStorage = {
+  getItem(key: string): Promise<string | null> | string | null;
+  setItem(key: string, value: string): Promise<void> | void;
+  removeItem(key: string): Promise<void> | void;
 };
+type AsyncStorageLike = ChatlyStorage;
 
 let cachedStorage: AsyncStorageLike | null = null;
 
-function getStorage(): AsyncStorageLike {
+function getStorage(injected?: ChatlyStorage): AsyncStorageLike {
+  if (injected !== undefined) {
+    return injected;
+  }
   if (cachedStorage !== null) {
     return cachedStorage;
   }
@@ -34,8 +44,8 @@ function getStorage(): AsyncStorageLike {
     return storage;
   } catch (err) {
     throw new Error(
-      '[@chatlychat/react-native] @react-native-async-storage/async-storage is required. ' +
-        'Install it in your app: `npm install @react-native-async-storage/async-storage`. ' +
+      '[@chatlychat/react-native] no storage available. Pass `storage` in the config, or ' +
+        'install the fallback: `npm install @react-native-async-storage/async-storage`. ' +
         `Underlying error: ${(err as Error).message}`,
     );
   }
@@ -44,20 +54,23 @@ function getStorage(): AsyncStorageLike {
 export class TokenStore {
   private readonly key: string;
 
-  public constructor(publicId: string) {
+  public constructor(
+    publicId: string,
+    private readonly storage?: ChatlyStorage,
+  ) {
     this.key = `chatly:vt:${publicId}`;
   }
 
   public async get(): Promise<string | null> {
-    return getStorage().getItem(this.key);
+    return getStorage(this.storage).getItem(this.key);
   }
 
   public async set(value: string): Promise<void> {
-    await getStorage().setItem(this.key, value);
+    await getStorage(this.storage).setItem(this.key, value);
   }
 
   public async clear(): Promise<void> {
-    await getStorage().removeItem(this.key);
+    await getStorage(this.storage).removeItem(this.key);
   }
 }
 
@@ -81,12 +94,15 @@ export class TokenStore {
 export class IdentityStore {
   private readonly key: string;
 
-  public constructor(publicId: string) {
+  public constructor(
+    publicId: string,
+    private readonly storage?: ChatlyStorage,
+  ) {
     this.key = `chatly:id:${publicId}`;
   }
 
   public async get(): Promise<StoredIdentity | null> {
-    const raw = await getStorage().getItem(this.key);
+    const raw = await getStorage(this.storage).getItem(this.key);
     if (raw === null) {
       return null;
     }
@@ -101,11 +117,11 @@ export class IdentityStore {
   }
 
   public async set(value: StoredIdentity): Promise<void> {
-    await getStorage().setItem(this.key, JSON.stringify(value));
+    await getStorage(this.storage).setItem(this.key, JSON.stringify(value));
   }
 
   public async clear(): Promise<void> {
-    await getStorage().removeItem(this.key);
+    await getStorage(this.storage).removeItem(this.key);
   }
 }
 

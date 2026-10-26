@@ -12,8 +12,9 @@ npm install @chatlychat/react-native @react-native-async-storage/async-storage
 yarn add @chatlychat/react-native @react-native-async-storage/async-storage
 ```
 
-`react`, `react-native`, and `@react-native-async-storage/async-storage` are
-peer dependencies. `socket.io-client` is bundled.
+`react` and `react-native` are peer dependencies. `@react-native-async-storage/async-storage`
+(`^1.17 || ^2`) is an **optional** peer: it is the default storage, and you can
+pass your own instead (see Storage). `socket.io-client` is bundled.
 
 For bare React Native apps, run `pod install` in `ios/` after installing
 AsyncStorage.
@@ -38,6 +39,29 @@ function Support() {
   return <ChatlyWidget />;
 }
 ```
+
+### Storage
+
+The visitor token and last identity are kept in AsyncStorage by default. Pass
+`storage` in the config to use anything else — anything with `getItem`,
+`setItem` and `removeItem`, sync or async:
+
+```tsx
+import { MMKV } from 'react-native-mmkv';
+
+const mmkv = new MMKV();
+const storage = {
+  getItem: (k: string) => mmkv.getString(k) ?? null,
+  setItem: (k: string, v: string) => mmkv.set(k, v),
+  removeItem: (k: string) => mmkv.delete(k),
+};
+
+<ChatlyProvider config={{ publicId: 'pub_abc123', storage }}>
+```
+
+With `storage` set, `@react-native-async-storage/async-storage` need not be
+installed. Without it, AsyncStorage `^1.17 || ^2` is the fallback, which covers
+the version Expo SDK 51 and 52 pin (1.23.x).
 
 ## Identifying users
 
@@ -162,6 +186,16 @@ a return request. `MessageCanvas` renders it and submits it, and the step's
 answer replaces what is on screen: a changed total comes back as a **fresh
 step** rather than a charge.
 
+Inputs are `text`, `textarea`, `email`, `tel`, `number`, `select` and `toggle`,
+the same as the web widget. `visibleWhen` shows an input only while a toggle or
+select holds a value; a hidden input is not drawn, not submitted and not
+summed. A step's `price` plus the `adds` of each selected option is the running
+total, and a submit action with `showTotal` names it ("Confirm & buy ·
+$145.49"). The total is presentation only: your endpoint prices the order from
+the values it receives. If options add in a different currency from the step's
+price, no total is shown. The same rules are exported as `computeCanvasTotal`
+and `visibleInputIds`.
+
 A step's answer may itself carry a host event (this is how 3-D Secure works on
 a phone), and that reaches the same `onAction`.
 
@@ -220,7 +254,7 @@ fixed and we will port it with attribution.
 What you can do here: read the source, run the tests, open an issue, or open a PR
 and we will treat the diff as the proposal.
 
-Not mirrored: src/ChatlyProvider.spec.tsx, src/blocks/money.parity.spec.ts, src/blocks/read-envelope.parity.spec.ts, src/blocks/read-envelope.spatial.parity.spec.ts, src/client/wire-vocabulary.parity.spec.ts, src/navigate-and-notice.spec.tsx, src/theme/resolveTheme.spec.ts, src/theme/widget-theme-map.spec.ts — specs that assert a type restated here still
+Not mirrored: src/ChatlyProvider.spec.tsx, src/blocks/canvas-total.parity.spec.ts, src/blocks/money.parity.spec.ts, src/blocks/read-envelope.parity.spec.ts, src/blocks/read-envelope.spatial.parity.spec.ts, src/client/wire-vocabulary.parity.spec.ts, src/navigate-and-notice.spec.tsx, src/theme/resolveTheme.spec.ts, src/theme/widget-theme-map.spec.ts — specs that assert a type restated here still
 matches the monorepo's original, which is only a meaningful claim inside it. They
 keep running there.
 
