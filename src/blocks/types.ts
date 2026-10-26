@@ -127,14 +127,14 @@ export type WidgetCardStock = 'in_stock' | 'low' | 'out_of_stock';
 /**
  * The trailing "show me more" tile on a grid.
  *
- * NARROWED to the two action kinds that can page. The other three are a tile
+ * NARROWED to the three action kinds that can page. The other three are a tile
  * that silently shows no more cards: `copy` writes the clipboard,
  * `host_event` goes to the host app, `step` opens a form. The reader drops a
  * tile carrying one of them and keeps the grid.
  */
 export interface WidgetGridMore {
   readonly label: string;
-  readonly action: Extract<WidgetAction, { readonly kind: 'postback' | 'url' }>;
+  readonly action: Extract<WidgetAction, { readonly kind: 'postback' | 'url' | 'navigate' }>;
 }
 
 /**
@@ -198,7 +198,7 @@ export interface WidgetCard {
   /**
    * Fired by tapping the card's image or title.
    *
-   * `url`, `host_event` or `step` only — the reader drops anything else, so a
+   * `url`, `host_event`, `step` or `navigate` only — the reader drops anything else, so a
    * surface can render this without re-checking the kind. `postback` is
    * excluded on purpose: a silent message sent by tapping a photo is
    * indistinguishable from a mis-tap.

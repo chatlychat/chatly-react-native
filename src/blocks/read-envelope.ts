@@ -255,7 +255,7 @@ function readVariants(raw: unknown): Bag[] {
 /**
  * A grid's trailing "more" tile, or null.
  *
- * Narrowed to the two action kinds that can page, matching the write schema:
+ * Narrowed to the three action kinds that can page, matching the write schema:
  * a `copy`, `host_event` or `step` tile would render as a button that shows
  * no more cards. Dropping the tile keeps the grid — twenty-four cards are the
  * substance and a missing affordance for the twenty-fifth is not worth losing
@@ -271,7 +271,10 @@ function readGridMore(raw: unknown): Bag | null {
     return null;
   }
   const action = readAction(raw['action']);
-  if (action === null || (action.kind !== 'postback' && action.kind !== 'url')) {
+  if (
+    action === null ||
+    (action.kind !== 'postback' && action.kind !== 'url' && action.kind !== 'navigate')
+  ) {
     return null;
   }
   return { ...raw, action };
@@ -404,7 +407,7 @@ function readCard(raw: unknown): Bag | null {
    * spec is what holds the two together.
    */
   /*
-   * `action` — the card's tap target. Narrowed to the three kinds the schema
+   * `action` — the card's tap target. Narrowed to the four kinds the schema
    * allows, and DROPPED otherwise: a stored card predating the field could
    * carry anything, and this value wraps the whole image. Byte-identical rule
    * to the server reader; the parity spec holds the two together.
@@ -416,7 +419,8 @@ function readCard(raw: unknown): Bag | null {
       str(a['label']) &&
       ((a['kind'] === 'url' && str(a['href'])) ||
         (a['kind'] === 'host_event' && str(a['event'])) ||
-        (a['kind'] === 'step' && str(a['canvasId'])));
+        (a['kind'] === 'step' && str(a['canvasId'])) ||
+        (a['kind'] === 'navigate' && str(a['path'])));
     if (!usable) {
       delete card['action'];
     }

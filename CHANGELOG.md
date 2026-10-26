@@ -1,5 +1,9 @@
 # @chatlychat/react-native
 
+## 0.9.0 — 2026-10-26
+
+- `navigate` is now also accepted as a card's image/title tap target and as a grid's `more` tile, with the same path guard and the same `onNavigate` / `siteOrigin` behaviour as a navigate button. `WidgetGridMore.action` widens to `postback | url | navigate`.
+
 ## 0.8.0 — 2026-10-26
 
 - **`navigate` card actions.** A card button can now carry a PATH on your site (`/pricing`). `<ChatlyProvider onNavigate={(e) => …}>` receives `{ path, label, conversationId, messageId, actionId }` and returns `true` when your router handled it; otherwise, if `config.siteOrigin` is set to your `https:` origin, the SDK opens `siteOrigin + path` in the system browser, and with neither it does nothing rather than guess a host. The path is checked again before either runs.
